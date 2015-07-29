@@ -96,14 +96,14 @@ void makeComplexList(double2* array_in, int list_size, PyObject *list_out) {
 static PyObject* GPUGrid_convgrid(PyObject* self, PyObject* args)
 {
   int npts, img_size, Qpx, gcf_dim, q;
-  PyObject *in, *img, *gcf, *out;
-  if(!PyArg_ParseTuple(args, "OiOiOii", &in, &npts, &img, &img_size, 
+  PyObject *in, *in_vals, *gcf, *out;
+  if(!PyArg_ParseTuple(args, "OiOiOii", &in, &npts, &in_vals, &img_size, 
                                     &gcf, &Qpx, &gcf_dim)) {
     PyErr_SetString(PyExc_TypeError, "Incorrect number or type of arguments to convgrid.\n\n"
-        "Usage: convgrid(in, npts, img, img_size, gcf, Qpx, gcf_dim)\n"
+        "Usage: convgrid(in, npts, in_vals, img_size, gcf, Qpx, gcf_dim)\n"
         "    in: list of float\n"
         "    npts: integer\n"
-        "    img: list of complex\n"
+        "    in_vals: list of complex\n"
         "    img_size: integer\n"
         "    gcf: list of complex\n"
         "    Qpx: integer\n"
@@ -112,14 +112,14 @@ static PyObject* GPUGrid_convgrid(PyObject* self, PyObject* args)
     printf("Incorrect number or type of arguments to convgrid.\n");
   }
 
-  double2 *gcf_c, *img_c, *out_c;
+  double2 *gcf_c, *in_vals_c, *out_c;
   double *in_c;
-  if (0 != extractComplexList(img, &img_c, 3)) return Py_BuildValue("");
+  if (0 != extractComplexList(in_vals, &in_vals_c, 3)) return Py_BuildValue("");
   if (0 != extractFloatList(in, &in_c, 1)) return Py_BuildValue("");
   if (0 != extractComplexList(gcf, &gcf_c, 5)) return Py_BuildValue("");
   out_c = (double2*)malloc(sizeof(double2)*npts);
 #if 1
-  gridGPU(out_c, (double2*)in_c, npts, img_c, img_size, gcf_c, gcf_dim); 
+  gridGPU(out_c, (double2*)in_c, (double2*)in_vals_c, npts, img_size, gcf_c, gcf_dim); 
   printf("Done with gridGPU\n"); fflush(0);
 #else
   for (q=0;q<npts;q++) {
@@ -129,7 +129,7 @@ static PyObject* GPUGrid_convgrid(PyObject* self, PyObject* args)
 #endif
 
   out = PyList_New(0);
-  makeComplexList(out_c, npts, out);
+  makeComplexList(out_c, img_size*img_size, out);
   printf("len(out) = %lu\n", PyList_Size(out));
 
   return Py_BuildValue("O", out);
