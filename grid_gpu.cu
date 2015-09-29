@@ -253,7 +253,7 @@ __global__ void set_bookmarks(int2* vis_in, int npts, int blocksize, int blockgr
 template <int gcf_dim, class CmplxType>
 __global__ void 
 __launch_bounds__(1024, 1)
-grid_kernel_scatter(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
+grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
                               int img_dim, CmplxType* gcf, int* bookmarks) {
    
    CmplxType __shared__ shm[gcf_dim][gcf_dim/4];
@@ -658,7 +658,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    d_gcf += gcf_dim*(gcf_dim+1)/2;
    CmplxType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim;
 
-#ifdef __SCATTER
+#ifdef __GATHER
    int2* in_ints;
    int* bookmarks;
    cudaMalloc(&in_ints, sizeof(int2)*npts);
@@ -672,7 +672,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    
    cudaMemset(d_out, 0, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim));
    cudaEventRecord(start);
-   grid_kernel_scatter<GCF_DIM>
+   grid_kernel_gather<GCF_DIM>
             <<<dim3((img_dim+gcf_dim-1)/gcf_dim, (img_dim+gcf_dim/4-1)/(gcf_dim/4)),
                dim3(gcf_dim, gcf_dim/4)>>>
                              (d_out_unpad,in_ints,npts,d_img,img_dim,d_gcf,bookmarks); 
@@ -725,7 +725,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    //Restore d_img and d_gcf for deallocation
    d_gcf -= gcf_dim*(gcf_dim+1)/2;
    cudaFree(d_out);
-#ifdef __SCATTER
+#ifdef __GATHER
    cudaFree(in_ints);
    cudaFree(bookmarks);
 #endif

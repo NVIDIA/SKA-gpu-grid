@@ -205,7 +205,7 @@ int main(void) {
       out[x+IMG_SIZE*IMG_SIZE].x = 0.0; out[x+IMG_SIZE*IMG_SIZE].y = 0.0;
    }
 
-#ifdef __SCATTER
+#ifdef __GATHER
    std::qsort(in, NPOINTS, sizeof(PRECISION2), comp_grid<PRECISION2,PRECISION>);
 #else
 #ifdef __MOVING_WINDOW

@@ -5,8 +5,8 @@ endif
 ifeq ($(DEBUG),1)
 	USERFLAGS += -g -G -lineinfo -D__CPU_CHECK
 endif
-ifeq ($(SCATTER),1)
-	USERFLAGS += -D__SCATTER
+ifeq ($(GATHER),1)
+	USERFLAGS += -D__GATHER
 endif
 ifeq ($(CPU_CHECK),1)
 	USERFLAGS += -D__CPU_CHECK
