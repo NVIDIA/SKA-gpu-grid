@@ -32,8 +32,8 @@ void init_gcf(PRECISION2 *gcf, size_t size) {
      for(size_t y=0; y<size; y++) {
        //Some nonsense GCF
        PRECISION tmp = sin(6.28*x/size/GCF_GRID)*exp(-(1.0*x*x+1.0*y*y*sub_y)/size/size/2);
-       gcf[size*size*(sub_x+sub_y*GCF_GRID)+x+y*size].x = tmp*sin(1.0*x*sub_x/(y+1));
-       gcf[size*size*(sub_x+sub_y*GCF_GRID)+x+y*size].y = tmp*cos(1.0*x*sub_x/(y+1));
+       gcf[size*size*(sub_x+sub_y*GCF_GRID)+x+y*size].x = tmp*sin(1.0*x*sub_x/(y+1))+0.4;
+       gcf[size*size*(sub_x+sub_y*GCF_GRID)+x+y*size].y = tmp*cos(1.0*x*sub_x/(y+1))-0.2;
        //std::cout << tmp << gcf[x+y*size].x << gcf[x+y*size].y << std::endl;
      }
 
@@ -65,8 +65,8 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
       //std::cout << "main = " << main_x << ", " << main_y << std::endl;
 //      #pragma acc parallel loop collapse(2) reduction(+:sum_r,sum_i) vector
 //#pragma omp parallel for collapse(2) reduction(+:sum_r, sum_i)
-      for (int a=-GCF_DIM/2; a<GCF_DIM/2 ;a++)
-      for (int b=-GCF_DIM/2; b<GCF_DIM/2 ;b++) {
+      for (int a=GCF_DIM/2; a>=-GCF_DIM/2 ;a--)
+      for (int b=GCF_DIM/2; b>=-GCF_DIM/2 ;b--) {
          PRECISION r2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
                         GCF_DIM*b+a].x;
          PRECISION i2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 

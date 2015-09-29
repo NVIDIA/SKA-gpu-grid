@@ -62,8 +62,8 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
       int main_y = floorf(inn.y); 
       auto sum_r = make_zero(out);
       auto sum_i = make_zero(out);
-      for(int a = threadIdx.x-gcf_dim/2;a<gcf_dim/2;a+=blockDim.x)
-      for(int b = -gcf_dim/2;b<gcf_dim/2;b++)
+      for(int a = -(int)threadIdx.x+gcf_dim/2;a>=-gcf_dim/2;a-=blockDim.x)
+      for(int b = gcf_dim/2;b>=-gcf_dim/2;b--)
       {
          //auto this_img = img[main_x+a+img_dim*(main_y+b)]; 
          //auto r1 = this_img.x;
@@ -299,8 +299,8 @@ grid_kernel_scatter(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       int a = this_x - main_x;
       //Skip the whole block?
       //if (left-main_x >= gcf_dim/2 || left-main_x+gcf_dim < -gcf_dim/2) continue;
-      if (a >= half_gcf || a < -half_gcf ||
-          b >= half_gcf || b < -half_gcf) {
+      if (a > half_gcf || a <= -half_gcf ||
+          b > half_gcf || b <= -half_gcf) {
          sum_r = 0.00;
          sum_i = 0.00;
       } else {
