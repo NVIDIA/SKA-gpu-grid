@@ -655,7 +655,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    //move d_img and d_gcf to remove padding
 #endif
    //offset gcf to point to the middle of the first GCF for cleaner code later
-   d_gcf += gcf_dim*(gcf_dim+1)/2;
+   d_gcf += (gcf_dim*(gcf_dim+1))/2;
    CmplxType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim;
 
 #ifdef __GATHER
@@ -723,7 +723,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaHostUnregister(in_vals);
 
    //Restore d_img and d_gcf for deallocation
-   d_gcf -= gcf_dim*(gcf_dim+1)/2;
+   d_gcf -= (gcf_dim*(gcf_dim+1))/2;
    cudaFree(d_out);
 #ifdef __GATHER
    cudaFree(in_ints);

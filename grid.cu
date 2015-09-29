@@ -52,7 +52,7 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
    //Zero the output
    for (size_t n=0;n<IMG_SIZE*IMG_SIZE; n++) out[n].x = out[n].y = 0.0;
    //offset gcf to point to the middle for cleaner code later
-   gcf += GCF_DIM*(GCF_DIM+1)/2;
+   gcf += (GCF_DIM*(GCF_DIM+1))/2;
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
    for(size_t n=0; n<NPOINTS; n++) {
@@ -82,7 +82,7 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
       }
       //std::cout << "val = " << out[n].r << "+ i" << out[n].i << std::endl;
    } 
-   gcf -= GCF_DIM*(GCF_DIM+1)/2;
+   gcf -= (GCF_DIM*(GCF_DIM+1))/2;
 }
 template <class T,class Thalf>
 int w_comp_main(const void* A, const void* B) {
