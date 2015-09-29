@@ -52,7 +52,7 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
    //Zero the output
    for (size_t n=0;n<IMG_SIZE*IMG_SIZE; n++) out[n].x = out[n].y = 0.0;
    //offset gcf to point to the middle for cleaner code later
-   gcf += (GCF_DIM*(GCF_DIM+1))/2;
+   gcf += GCF_DIM*(GCF_DIM-1)/2-1;
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
    for(size_t n=0; n<NPOINTS; n++) {
@@ -76,13 +76,18 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
          if (main_x+a < 0 || main_y+b < 0 || 
              main_x+a >= IMG_SIZE  || main_y+b >= IMG_SIZE) {
          } else {
+#ifdef DEBUG1
+            out[main_x+a+IMG_SIZE*(main_y+b)].x += n;
+            out[main_x+a+IMG_SIZE*(main_y+b)].y += gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x)+GCF_DIM*b+a].y;
+#else
             out[main_x+a+IMG_SIZE*(main_y+b)].x += r1*r2-i1*i2; 
             out[main_x+a+IMG_SIZE*(main_y+b)].y += r1*i2+r2*i1;
+#endif
          }
       }
       //std::cout << "val = " << out[n].r << "+ i" << out[n].i << std::endl;
    } 
-   gcf -= (GCF_DIM*(GCF_DIM+1))/2;
+   gcf -= GCF_DIM*(GCF_DIM-1)/2-1;
 }
 template <class T,class Thalf>
 int w_comp_main(const void* A, const void* B) {
@@ -205,6 +210,7 @@ int main(void) {
       out[x+IMG_SIZE*IMG_SIZE].x = 0.0; out[x+IMG_SIZE*IMG_SIZE].y = 0.0;
    }
 
+
 #ifdef __GATHER
    std::qsort(in, NPOINTS, sizeof(PRECISION2), comp_grid<PRECISION2,PRECISION>);
 #else
@@ -214,6 +220,12 @@ int main(void) {
    std::qsort(in, NPOINTS, sizeof(PRECISION2), w_comp_sub<PRECISION2,PRECISION>);
 #endif
 #endif
+   auto tmp = in[0];
+   in[0]=in[3959];
+   in[3959] = tmp;
+   tmp = in_vals[0];
+   in_vals[0]=in_vals[3959];
+   in_vals[3959]=tmp;
    std::cout << "sorted" << std::endl;
    
    std::cout << "out = " << out << std::endl;

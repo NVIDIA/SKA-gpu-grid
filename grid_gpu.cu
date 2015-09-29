@@ -73,30 +73,36 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
          if (main_x+a < 0 || main_y+b < 0 || 
              main_x+a >= IMG_SIZE  || main_y+b >= IMG_SIZE) {
             r1=i1=0.0;
-         }
-         //auto this_gcf = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-         //               gcf_dim*b+a]);
-         //auto r2 = this_gcf.x;
-         //auto i2 = this_gcf.y;
+         } else {
+            //auto this_gcf = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+            //               gcf_dim*b+a]);
+            //auto r2 = this_gcf.x;
+            //auto i2 = this_gcf.y;
 #ifdef __COMPUTE_GCF
-         //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
-         //double r2 = sin(phase);
-         //double i2 = cos(phase);
-         float xsquare = (main_x-inn.x);
-         float ysquare = (main_x-inn.x);
-         xsquare *= xsquare;
-         ysquare *= ysquare;
-         float phase = p1 - p2*sqrt(xsquare + ysquare);
-         float r2,i2;
-         sincosf(phase, &r2, &i2);
+            //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
+            //double r2 = sin(phase);
+            //double i2 = cos(phase);
+            float xsquare = (main_x-inn.x);
+            float ysquare = (main_x-inn.x);
+            xsquare *= xsquare;
+            ysquare *= ysquare;
+            float phase = p1 - p2*sqrt(xsquare + ysquare);
+            float r2,i2;
+            sincosf(phase, &r2, &i2);
 #else
-         auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].x);
-         auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].y);
+            auto r2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                           gcf_dim*b+a].x;
+            auto i2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                           gcf_dim*b+a].y;
 #endif
-         atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, r1*r2 - i1*i2); 
-         atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, r1*i2 + r2*i1); 
+#ifdef DEBUG1
+            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, n+q);
+            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x)+gcf_dim*b+a].y);
+#else
+            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, r1*r2 - i1*i2); 
+            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, r1*i2 + r2*i1); 
+#endif
+         }
       }
 
 #if 0
@@ -627,7 +633,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    //Pin CPU memory
    std::cout << "Register out" << std::endl;
    cudaHostRegister(out, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim), cudaHostRegisterMapped);
-   cudaHostRegister(gcf, sizeof(CmplxType)*64*gcf_dim*gcf_dim, cudaHostRegisterMapped);
+   cudaHostRegister(gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim, cudaHostRegisterMapped);
    cudaHostRegister(in, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
    cudaHostRegister(in_vals, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
 
@@ -635,7 +641,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    std::cout << "img size = " << (img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*
                                                                  sizeof(CmplxType) << std::endl;
    cudaMalloc(&d_out, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim));
-   cudaMalloc(&d_gcf, sizeof(CmplxType)*64*gcf_dim*gcf_dim);
+   cudaMalloc(&d_gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim);
    cudaMalloc(&d_in, sizeof(CmplxType)*npts);
    cudaMalloc(&d_in_vals, sizeof(CmplxType)*npts);
    std::cout << "out size = " << sizeof(CmplxType)*npts << std::endl;
@@ -655,7 +661,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    //move d_img and d_gcf to remove padding
 #endif
    //offset gcf to point to the middle of the first GCF for cleaner code later
-   d_gcf += (gcf_dim*(gcf_dim+1))/2;
+   d_gcf += gcf_dim*(gcf_dim-1)/2-1;
    CmplxType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim;
 
 #ifdef __GATHER
@@ -723,7 +729,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaHostUnregister(in_vals);
 
    //Restore d_img and d_gcf for deallocation
-   d_gcf -= (gcf_dim*(gcf_dim+1))/2;
+   d_gcf -= gcf_dim*(gcf_dim-1)/2-1;
    cudaFree(d_out);
 #ifdef __GATHER
    cudaFree(in_ints);
