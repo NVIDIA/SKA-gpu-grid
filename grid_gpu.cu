@@ -62,8 +62,8 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
       int main_y = floorf(inn.y); 
       auto sum_r = make_zero(out);
       auto sum_i = make_zero(out);
-      for(int a = -(int)threadIdx.x+gcf_dim/2;a>=-gcf_dim/2;a-=blockDim.x)
-      for(int b = gcf_dim/2;b>=-gcf_dim/2;b--)
+      for(int a = -(int)threadIdx.x+gcf_dim/2;a>-gcf_dim/2;a-=blockDim.x)
+      for(int b = gcf_dim/2;b>-gcf_dim/2;b--)
       {
          //auto this_img = img[main_x+a+img_dim*(main_y+b)]; 
          //auto r1 = this_img.x;
@@ -255,15 +255,14 @@ __global__ void set_bookmarks(int2* vis_in, int npts, int blocksize, int blockgr
       }
    }
 }
-#if 0
 template <int gcf_dim, class CmplxType>
 __global__ void 
 __launch_bounds__(1024, 1)
 grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
                               int img_dim, CmplxType* gcf, int* bookmarks) {
    
-   CmplxType __shared__ shm[gcf_dim][gcf_dim/4];
    int2 __shared__ inbuff[32];
+   CmplxType __shared__ invalbuff[32];
 #ifdef __COMPUTE_GCF
    double T = gcf[0].x;
    double w = gcf[0].y;
@@ -274,28 +273,29 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    int top = blockIdx.y*blockDim.y;
    int this_x = left+threadIdx.x;
    int this_y = top+threadIdx.y;
-   auto r1 = img[this_x + img_dim * this_y].x;
-   auto i1 = img[this_x + img_dim * this_y].y;
-   auto sum_r = make_zero(img);
-   auto sum_i = make_zero(img);
+   //auto r1 = img[this_x + img_dim * this_y].x;
+   //auto i1 = img[this_x + img_dim * this_y].y;
+   auto sum_r = make_zero(out);
+   auto sum_i = make_zero(out);
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
    int bm_y = top/half_gcf-1;
    for (int y=bm_y<0?0:bm_y;(y<bm_y+2+(blockDim.y+half_gcf-1)/half_gcf)&&(y<img_dim/half_gcf);y++) {
    for (int x=bm_x<0?0:bm_x;(x<bm_x+2+(blockDim.x+half_gcf-1)/half_gcf)&&(x<img_dim/half_gcf);x++) {
-   for (int n=bookmarks[y*img_dim/half_gcf+x];
-            n<bookmarks[y*img_dim/half_gcf+x+1]; n+=32) {
+   int bm_start = bookmarks[y*img_dim/half_gcf+x];
+   int bm_end = bookmarks[y*img_dim/half_gcf+x+1];
+   for (int n=bm_start; n<= bm_end; n+=32) {
+      //TODO make warp-synchronous?
+      __syncthreads(); 
       if (threadIdx.x<32 && threadIdx.y==0) inbuff[threadIdx.x]=in[n+threadIdx.x];
-      __syncthreads(); //1438
+      //if (threadIdx.x<32 && threadIdx.y==blockDim.y-1) invalbuff[threadIdx.x]=in_vals[n+threadIdx.x];
+      if (threadIdx.x<32 && threadIdx.y==0) invalbuff[threadIdx.x]=in_vals[n+threadIdx.x];
+      __syncthreads(); 
       
-      //TODO remove
-      //if (threadIdx.y==0 && threadIdx.x==22) shm[threadIdx.y][threadIdx.x].x = 4.44;
-      shm[threadIdx.x][threadIdx.y].x = 0.00;
-      shm[threadIdx.x][threadIdx.y].y = 0.00;
-      //if (threadIdx.y==0 && threadIdx.x==22) shm[threadIdx.y][threadIdx.x].x = 4.04;
-   for (int q = 0; q<32 && n+q < bookmarks[y*img_dim/half_gcf+x+1]; q++) {
+   for (int q = 0; q<32 && n+q < bm_end; q++) {
       int2 inn = inbuff[q];
+      CmplxType in_valn = invalbuff[q];
       //TODO Don't floorf initially, just compare
       int main_y = inn.y/GCF_GRID;
       int b = this_y - main_y;
@@ -307,8 +307,8 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       //if (left-main_x >= gcf_dim/2 || left-main_x+gcf_dim < -gcf_dim/2) continue;
       if (a > half_gcf || a <= -half_gcf ||
           b > half_gcf || b <= -half_gcf) {
-         sum_r = 0.00;
-         sum_i = 0.00;
+         sum_r += 0.00;
+         sum_i += 0.00;
       } else {
 #ifdef __COMPUTE_GCF
          //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
@@ -324,10 +324,12 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
 #else
          int sub_x = inn.x%GCF_GRID;
          int sub_y = inn.y%GCF_GRID;
-         auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].x);
-         auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].y);
+         auto r1 = in_valn.x;
+         auto i1 = in_valn.y;
+         auto r2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                        gcf_dim*b+a].x;
+         auto i2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                        gcf_dim*b+a].y;
 #endif
          //TODO remove
          //if (a!=0 || b!=0) {
@@ -337,99 +339,32 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
          //sum_i = (n+q)*1.0;//i2;
          //}
          //TODO restore
-         sum_r = r1*r2 - i1*i2; 
-         sum_i = r1*i2 + r2*i1;
-      }
-
-     //reduce in two directions
-      //WARNING: Adjustments must be made if blockDim.y and blockDim.x are no
-      //         powers of 2 
-      //Reduce using shuffle first
-#if 1
-      warp_reduce2(sum_r);
-      warp_reduce2(sum_i);
-      int stripe_width_x = blockDim.x/32; //number of rows in shared memory that 
-                                          //contain data for a single visibility
-      int n_stripe = blockDim.y/stripe_width_x; //the number of stripes that fit
-      if (0 == threadIdx.x%32) {
-         shm[threadIdx.x/32+stripe_width_x*(q%n_stripe)][threadIdx.y].x = sum_r;
-         shm[threadIdx.x/32+stripe_width_x*(q%n_stripe)][threadIdx.y].y = sum_i;
-      }
-      //Once we've accumulated a full set, or this is the last q, reduce more
-      if (q+1==n_stripe || q==31 || n+q == bookmarks[y*img_dim/half_gcf+x+1]-1) {
-         int stripe_width_y = blockDim.y/32;
-         if (stripe_width_y < 1) stripe_width_y=1;
-         __syncthreads(); 
-         if (threadIdx.y<(q+1)*stripe_width_x) {
-            sum_r = shm[threadIdx.y][threadIdx.x].x;
-            sum_i = shm[threadIdx.y][threadIdx.x].y;
-            warp_reduce2(sum_r, blockDim.y<32 ? blockDim.y:32);
-            warp_reduce2(sum_i, blockDim.y<32 ? blockDim.y:32);
-            if (0 == threadIdx.x%32) {
-               //shm[0][threadIdx.y*stripe_width_y + (threadIdx.x/32)].x = sum_r;
-               //shm[0][threadIdx.y*stripe_width_y + (threadIdx.x/32)].y = sum_i;
-               int idx = threadIdx.y*stripe_width_y + (threadIdx.x/32);
-               atomicAdd(&(out[n+idx/(stripe_width_x*stripe_width_y)].x), sum_r);
-               atomicAdd(&(out[n+idx/(stripe_width_x*stripe_width_y)].y), sum_i);
-            }
-         }
-#if 0
-         __syncthreads(); 
-         //Warning: trouble if gcf_dim > sqrt(32*32*32) = 128
-         int idx = threadIdx.x + threadIdx.y*blockDim.x;
-         if (idx < stripe_width_x*stripe_width_y*(q+1)) {
-            sum_r = shm[0][idx].x;
-            sum_i = shm[0][idx].y;
-            warp_reduce2(sum_r, stripe_width_x*stripe_width_y);
-            warp_reduce2(sum_i, stripe_width_x*stripe_width_y);
-            if (0 == idx%(stripe_width_x*stripe_width_y)) {
-               atomicAdd(&(out[n+idx/(stripe_width_x*stripe_width_y)].x),sum_r);
-               atomicAdd(&(out[n+idx/(stripe_width_x*stripe_width_y)].y),sum_i);
-            }
-         }
-#endif
-      }
-      
+#ifdef DEBUG1
+         sum_r += 1.0;
+         sum_i += n+q;
 #else
-      
-      shm[threadIdx.y][threadIdx.x].x = sum_r;
-      shm[threadIdx.y][threadIdx.x].y = sum_i;
-      __syncthreads();
-      //Reduce in y
-      for(int s = blockDim.y/2;s>0;s/=2) {
-         if (threadIdx.y < s) {
-           shm[threadIdx.y][threadIdx.x].x += shm[threadIdx.y+s][threadIdx.x].x;
-           shm[threadIdx.y][threadIdx.x].y += shm[threadIdx.y+s][threadIdx.x].y;
-         }
-         __syncthreads();
+         sum_r += r1*r2 - i1*i2; 
+         sum_i += r1*i2 + r2*i1;
+#endif
+         //sum_r = sum_r < b*10000+a ? b*10000+a : sum_r;
+         //if(sub_x==7&&sub_y==7) sum_r = sum_r < gcf_dim*b+a ? gcf_dim*b+a : sum_r;
+         //sum_r = sum_r < inn.y?inn.y:sum_r;
+         //sum_r += r1;
+         //sum_i += i2;
+         //sum_r += n+q==891 ? inbuff[q].y : 0;
+         //sum_i += n+q==891 ? in[n+q].y : 0;
+         //sum_r = sum_r > a ? sum_r : a;
+         //sum_i = sum_i > n+q ? sum_i : n+q;
       }
 
-      //Reduce the top row
-      for(int s = blockDim.x/2;s>16;s/=2) {
-         if (0 == threadIdx.y && threadIdx.x < s) 
-                    shm[0][threadIdx.x].x += shm[0][threadIdx.x+s].x;
-         if (0 == threadIdx.y && threadIdx.x < s) 
-                    shm[0][threadIdx.x].y += shm[0][threadIdx.x+s].y;
-         __syncthreads();
-      }
-      if (threadIdx.y == 0) {
-         //Reduce the final warp using shuffle
-         CmplxType tmp = shm[0][threadIdx.x];
-         for(int s = blockDim.x < 16 ? blockDim.x : 16; s>0;s/=2) {
-            tmp.x += __shfl_down(tmp.x,s);
-            tmp.y += __shfl_down(tmp.y,s);
-         }
-         if (threadIdx.x == 0) {
-            atomicAdd(&(out[n+q].x),tmp.x);
-            atomicAdd(&(out[n+q].y),tmp.y);
-         }
-      }
-#endif
    }
    } //n
    } //x
    } //y
+   out[this_x + img_dim * this_y].x = sum_r;
+   out[this_x + img_dim * this_y].y = sum_i;
 }
+#if 0
 template <int gcf_dim, class CmplxType>
 __global__ void 
 __launch_bounds__(1024, 1)
@@ -673,15 +608,21 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    CUDA_CHECK_ERR(__LINE__,__FILE__);
    set_bookmarks<<<4,256>>>(in_ints, npts, gcf_dim/2, img_dim/gcf_dim*2, 
                                bookmarks);
+   int2* h_ints = (int2*)malloc(sizeof(int2)*npts);
+   cudaMemcpy(h_ints, in_ints, sizeof(int2)*npts, cudaMemcpyDeviceToHost);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
    
    
    cudaMemset(d_out, 0, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim));
    cudaEventRecord(start);
    grid_kernel_gather<GCF_DIM>
-            <<<dim3((img_dim+gcf_dim-1)/gcf_dim, (img_dim+gcf_dim/4-1)/(gcf_dim/4)),
-               dim3(gcf_dim, gcf_dim/4)>>>
-                             (d_out_unpad,in_ints,npts,d_img,img_dim,d_gcf,bookmarks); 
+            <<<dim3((img_dim+gcf_dim/4-1)/(gcf_dim/4), (img_dim+gcf_dim/4-1)/(gcf_dim/4)),
+               dim3(gcf_dim/4, gcf_dim/4)>>>
+   //         <<<dim3((img_dim+gcf_dim-1)/(gcf_dim), (img_dim+gcf_dim-1)/(gcf_dim)),
+   //            dim3(gcf_dim, gcf_dim)>>>
+                             (d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf,bookmarks); 
+   //std::cout<< "grid_kernel_gather<<<(" << (img_dim+gcf_dim-1)/gcf_dim << ", " << (img_dim+gcf_dim/4-1)/(gcf_dim/4) << "), (" << gcf_dim << ", " << gcf_dim/4 << ")>>>()" << std::endl; 
+   CUDA_CHECK_ERR(__LINE__,__FILE__);
 #else
 #ifdef __MOVING_WINDOW
    int2* in_ints;

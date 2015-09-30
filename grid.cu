@@ -65,8 +65,8 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
       //std::cout << "main = " << main_x << ", " << main_y << std::endl;
 //      #pragma acc parallel loop collapse(2) reduction(+:sum_r,sum_i) vector
 //#pragma omp parallel for collapse(2) reduction(+:sum_r, sum_i)
-      for (int a=GCF_DIM/2; a>=-GCF_DIM/2 ;a--)
-      for (int b=GCF_DIM/2; b>=-GCF_DIM/2 ;b--) {
+      for (int a=GCF_DIM/2; a>-GCF_DIM/2 ;a--)
+      for (int b=GCF_DIM/2; b>-GCF_DIM/2 ;b--) {
          PRECISION r2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
                         GCF_DIM*b+a].x;
          PRECISION i2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
@@ -77,8 +77,8 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
              main_x+a >= IMG_SIZE  || main_y+b >= IMG_SIZE) {
          } else {
 #ifdef DEBUG1
-            out[main_x+a+IMG_SIZE*(main_y+b)].x += n;
-            out[main_x+a+IMG_SIZE*(main_y+b)].y += gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x)+GCF_DIM*b+a].y;
+            out[main_x+a+IMG_SIZE*(main_y+b)].x += 1;
+            out[main_x+a+IMG_SIZE*(main_y+b)].y += n;
 #else
             out[main_x+a+IMG_SIZE*(main_y+b)].x += r1*r2-i1*i2; 
             out[main_x+a+IMG_SIZE*(main_y+b)].y += r1*i2+r2*i1;
@@ -220,12 +220,6 @@ int main(void) {
    std::qsort(in, NPOINTS, sizeof(PRECISION2), w_comp_sub<PRECISION2,PRECISION>);
 #endif
 #endif
-   auto tmp = in[0];
-   in[0]=in[3959];
-   in[3959] = tmp;
-   tmp = in_vals[0];
-   in_vals[0]=in_vals[3959];
-   in_vals[3959]=tmp;
    std::cout << "sorted" << std::endl;
    
    std::cout << "out = " << out << std::endl;
