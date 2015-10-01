@@ -257,7 +257,7 @@ __global__ void set_bookmarks(int2* vis_in, int npts, int blocksize, int blockgr
 }
 template <int gcf_dim, class CmplxType>
 __global__ void 
-__launch_bounds__(1024, 1)
+__launch_bounds__(1024, 2)
 grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
                               int img_dim, CmplxType* gcf, int* bookmarks) {
    
@@ -288,9 +288,11 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    for (int n=bm_start; n<= bm_end; n+=32) {
       //TODO make warp-synchronous?
       __syncthreads(); 
-      if (threadIdx.x<32 && threadIdx.y==0) inbuff[threadIdx.x]=in[n+threadIdx.x];
+      if (threadIdx.x<32 && threadIdx.y==0) inbuff[threadIdx.x]=
+                                               in[n+threadIdx.x];
       //if (threadIdx.x<32 && threadIdx.y==blockDim.y-1) invalbuff[threadIdx.x]=in_vals[n+threadIdx.x];
-      if (threadIdx.x<32 && threadIdx.y==0) invalbuff[threadIdx.x]=in_vals[n+threadIdx.x];
+      if (threadIdx.x<32 && threadIdx.y==0) invalbuff[threadIdx.x]=
+                                               in_vals[n+threadIdx.x];
       __syncthreads(); 
       
    for (int q = 0; q<32 && n+q < bm_end; q++) {
@@ -326,19 +328,11 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
          int sub_y = inn.y%GCF_GRID;
          auto r1 = in_valn.x;
          auto i1 = in_valn.y;
-         auto r2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].x;
-         auto i2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].y;
+         auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                        gcf_dim*b+a].x);
+         auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                        gcf_dim*b+a].y);
 #endif
-         //TODO remove
-         //if (a!=0 || b!=0) {
-         //   sum_r = sum_i = 0;
-         //} else {
-         //sum_r = (n+q)*1.0;//r2;
-         //sum_i = (n+q)*1.0;//i2;
-         //}
-         //TODO restore
 #ifdef DEBUG1
          sum_r += 1.0;
          sum_i += n+q;
@@ -346,15 +340,6 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
          sum_r += r1*r2 - i1*i2; 
          sum_i += r1*i2 + r2*i1;
 #endif
-         //sum_r = sum_r < b*10000+a ? b*10000+a : sum_r;
-         //if(sub_x==7&&sub_y==7) sum_r = sum_r < gcf_dim*b+a ? gcf_dim*b+a : sum_r;
-         //sum_r = sum_r < inn.y?inn.y:sum_r;
-         //sum_r += r1;
-         //sum_i += i2;
-         //sum_r += n+q==891 ? inbuff[q].y : 0;
-         //sum_i += n+q==891 ? in[n+q].y : 0;
-         //sum_r = sum_r > a ? sum_r : a;
-         //sum_i = sum_i > n+q ? sum_i : n+q;
       }
 
    }
@@ -559,27 +544,21 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    d_out = out;
    d_in = in;
    d_in_vals = in_vals;
-   std::cout << "img size = " << (img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*
                                                                  sizeof(CmplxType) << std::endl;
-   std::cout << "out size = " << sizeof(CmplxType)*npts << std::endl;
 #else
    //img is padded to avoid overruns. Subtract to find the real head
 
    //Pin CPU memory
-   std::cout << "Register out" << std::endl;
    cudaHostRegister(out, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim), cudaHostRegisterMapped);
    cudaHostRegister(gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim, cudaHostRegisterMapped);
    cudaHostRegister(in, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
    cudaHostRegister(in_vals, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
 
    //Allocate GPU memory
-   std::cout << "img size = " << (img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*
-                                                                 sizeof(CmplxType) << std::endl;
    cudaMalloc(&d_out, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim));
    cudaMalloc(&d_gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim);
    cudaMalloc(&d_in, sizeof(CmplxType)*npts);
    cudaMalloc(&d_in_vals, sizeof(CmplxType)*npts);
-   std::cout << "out size = " << sizeof(CmplxType)*npts << std::endl;
    CUDA_CHECK_ERR(__LINE__,__FILE__);
 
    //Copy in img, gcf and out
@@ -591,7 +570,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaMemcpy(d_in_vals, in_vals, sizeof(CmplxType)*npts,
               cudaMemcpyHostToDevice);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
-   std::cout << "memcpy time: " << getElapsed(start, stop) << std::endl;
+   std::cout << "memcpy time: " << getElapsed(start, stop) << " ms." << std::endl;
 
    //move d_img and d_gcf to remove padding
 #endif
@@ -658,13 +637,10 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaMemcpy(out, d_out, 
               sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim), 
               cudaMemcpyDeviceToHost);
-   std::cout << "copying " << (img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)/1000000*sizeof(CmplxType) << "Mbytes from " <<d_out << " to " << out << std::endl;
-   std::cout << "INT_MAX = " << INT_MAX << std::endl;
    CUDA_CHECK_ERR(__LINE__,__FILE__);
 
    //Unpin CPU memory
    cudaHostUnregister(gcf);
-   std::cout << "Unregister out" << std::endl;
    cudaHostUnregister(out);
    cudaHostUnregister(in);
    cudaHostUnregister(in_vals);

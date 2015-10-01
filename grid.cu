@@ -179,15 +179,12 @@ int main(void) {
 
 #ifdef __MANAGED
    PRECISION2* out, *in, *in_vals, *gcf;
-   std::cout << "mallocManaged out" << std::endl;
    cudaMallocManaged(&out, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM));
    cudaMallocManaged(&in, sizeof(PRECISION2)*NPOINTS);
    cudaMallocManaged(&in_vals, sizeof(PRECISION2)*NPOINTS);
    cudaMallocManaged(&gcf, sizeof(PRECISION2)*64*GCF_DIM*GCF_DIM);
 #else
-   std::cout << "malloc out" << std::endl;
    PRECISION2* out = (PRECISION2*) malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM));
-   std::cout << "out = " << out << std::endl;
    PRECISION2* in = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS);
    PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS);
 
@@ -203,11 +200,14 @@ int main(void) {
       in_vals[n].y = ((float)rand())/RAND_MAX;
    }
    //Zero the data in the offset areas
-   for (int x=-IMG_SIZE*GCF_DIM-GCF_DIM;x<0;x++) {
-      out[x].x = 0.0; out[x].y = 0.0;
-   }
+   //for (int x=-IMG_SIZE*GCF_DIM-GCF_DIM;x<0;x++) {
+   //   out[x].x = 0.0; out[x].y = 0.0;
+  // }
    for (int x=0;x<IMG_SIZE*GCF_DIM+GCF_DIM;x++) {
-      out[x+IMG_SIZE*IMG_SIZE].x = 0.0; out[x+IMG_SIZE*IMG_SIZE].y = 0.0;
+      out[x].x=0.0;
+      out[x].y=0.0;
+      out[x+IMG_SIZE*IMG_SIZE+IMG_SIZE*GCF_DIM+GCF_DIM].x = 0.0;
+      out[x+IMG_SIZE*IMG_SIZE+IMG_SIZE*GCF_DIM+GCF_DIM].y = 0.0;
    }
 
 
@@ -220,11 +220,9 @@ int main(void) {
    std::qsort(in, NPOINTS, sizeof(PRECISION2), w_comp_sub<PRECISION2,PRECISION>);
 #endif
 #endif
-   std::cout << "sorted" << std::endl;
    
-   std::cout << "out = " << out << std::endl;
+   std::cout << "Computing on GPU..." << std::endl;
    gridGPU(out,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
-   std::cout << "out = " << out << std::endl;
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
    PRECISION2 *out_cpu=(PRECISION2*)malloc(sizeof(PRECISION2)*IMG_SIZE*IMG_SIZE);
@@ -232,7 +230,6 @@ int main(void) {
    
    gridCPU(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
 #endif
-   std::cout << "out = " << out << std::endl;
 
 
 #ifdef __CPU_CHECK
@@ -251,18 +248,13 @@ int main(void) {
    //std::cout << "free out_cpu" << std::endl;
    //free(out_cpu);out_cpu=NULL;
 #endif
-   std::cout << "out = " << out << std::endl;
 #ifdef __MANAGED
-   std::cout << "cudaFree out" << std::endl;
    cudaFree(out);out=NULL;
    cudaFree(in);in=NULL;
    cudaFree(in_vals);in_vals=NULL;
    cudaFree(gcf);gcf=NULL;
 #else
-   std::cout << "out = " << out << std::endl;
-   std::cout << "free out" << std::endl;
    free(out);out=NULL;
-   std::cout << "out = " << out << std::endl;
    free(in);in=NULL;
    free(in_vals);in_vals=NULL;
    free(gcf);gcf=NULL;
