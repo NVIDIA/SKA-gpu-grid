@@ -270,13 +270,15 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    float p2 = p1*T;
 #endif
    int left = blockIdx.x*blockDim.x;
-   int top = blockIdx.y*blockDim.y;
+   int top = blockIdx.y*blockDim.y*PTS;
    int this_x = left+threadIdx.x;
    int this_y = top+threadIdx.y;
    //auto r1 = img[this_x + img_dim * this_y].x;
    //auto i1 = img[this_x + img_dim * this_y].y;
-   auto sum_r = make_zero(out);
-   auto sum_i = make_zero(out);
+   CmplxType sum_r[PTS]; 
+   CmplxType sum_i[PTS]; 
+   auto foo = make_zero(out);
+   for (int p=0;p<PTS;p++) {sum_r[p].x = sum_i[p].x = 0.0;}
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
@@ -298,56 +300,53 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    for (int q = 0; q<32 && n+q < bm_end; q++) {
       int2 inn = inbuff[q];
       CmplxType in_valn = invalbuff[q];
+      for (int p = 0; p < PTS; p++) {
       //TODO Don't floorf initially, just compare
       int main_y = inn.y/GCF_GRID;
-      int b = this_y - main_y;
-      //Skip the whole block?
-      //if (top-main_y >= gcf_dim/2 || top-main_y+gcf_dim < -gcf_dim/2) continue;
+      int b = this_y + (32/PTS)*p - main_y;
+      if (b > half_gcf || b <= - half_gcf) continue;
       int main_x = inn.x/GCF_GRID;
       int a = this_x - main_x;
-      //Skip the whole block?
-      //if (left-main_x >= gcf_dim/2 || left-main_x+gcf_dim < -gcf_dim/2) continue;
-      if (a > half_gcf || a <= -half_gcf ||
-          b > half_gcf || b <= -half_gcf) {
-         sum_r += 0.00;
-         sum_i += 0.00;
-      } else {
+      if (a > half_gcf || a <= - half_gcf) continue;
 #ifdef __COMPUTE_GCF
-         //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
-         //double r2 = sin(phase);
-         //double i2 = cos(phase);
-         float xsquare = (main_x-inn.x);
-         float ysquare = (main_x-inn.x);
-         xsquare *= xsquare;
-         ysquare *= ysquare;
-         float phase = p1 - p2*sqrt(xsquare + ysquare);
-         float r2,i2;
-         sincosf(phase, &r2, &i2);
+      //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
+      //double r2 = sin(phase);
+      //double i2 = cos(phase);
+      float xsquare = (main_x-inn.x);
+      float ysquare = (main_x-inn.x);
+      xsquare *= xsquare;
+      ysquare *= ysquare;
+      float phase = p1 - p2*sqrt(xsquare + ysquare);
+      float r2,i2;
+      sincosf(phase, &r2, &i2);
 #else
-         int sub_x = inn.x%GCF_GRID;
-         int sub_y = inn.y%GCF_GRID;
-         auto r1 = in_valn.x;
-         auto i1 = in_valn.y;
-         auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].x);
-         auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                        gcf_dim*b+a].y);
+      int sub_x = inn.x%GCF_GRID;
+      int sub_y = inn.y%GCF_GRID;
+      auto r1 = in_valn.x;
+      auto i1 = in_valn.y;
+      auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                     gcf_dim*b+a].x);
+      auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                     gcf_dim*b+a].y);
 #endif
 #ifdef DEBUG1
-         sum_r += 1.0;
-         sum_i += n+q;
+      sum_r[p].x += 1.0;
+      sum_i[p].x += n+q;
 #else
-         sum_r += r1*r2 - i1*i2; 
-         sum_i += r1*i2 + r2*i1;
+      sum_r[p].x += r1*r2 - i1*i2; 
+      sum_i[p].x += r1*i2 + r2*i1;
 #endif
-      }
+      //}
 
-   }
+   } //p
+   } //q
    } //n
    } //x
    } //y
-   out[this_x + img_dim * this_y].x = sum_r;
-   out[this_x + img_dim * this_y].y = sum_i;
+   for (int p=0;p<PTS;p++) {
+      out[this_x + img_dim * (this_y+(32/PTS)*p)].x = sum_r[p].x;
+      out[this_x + img_dim * (this_y+(32/PTS)*p)].y = sum_i[p].x;
+   }
 }
 #if 0
 template <int gcf_dim, class CmplxType>
@@ -596,7 +595,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaEventRecord(start);
    grid_kernel_gather<GCF_DIM>
             <<<dim3((img_dim+gcf_dim/4-1)/(gcf_dim/4), (img_dim+gcf_dim/4-1)/(gcf_dim/4)),
-               dim3(gcf_dim/4, gcf_dim/4)>>>
+               dim3(gcf_dim/4, gcf_dim/4/PTS)>>>
    //         <<<dim3((img_dim+gcf_dim-1)/(gcf_dim), (img_dim+gcf_dim-1)/(gcf_dim)),
    //            dim3(gcf_dim, gcf_dim)>>>
                              (d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf,bookmarks); 
