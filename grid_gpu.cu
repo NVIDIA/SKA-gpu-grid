@@ -233,7 +233,7 @@ __global__ void vis2ints(CmplxType *vis_in, int2* vis_out, int npts) {
    }
 }
 //Make sure visibilities are sorted by  main_x/blocksize then main_y/blocksize
-// blockgrid should be img_dim/blocksize
+// blockgrid should be (img_dim+blocksize-1)/blocksize
 __global__ void set_bookmarks(int2* vis_in, int npts, int blocksize, int blockgrid, int* bookmarks) {
    for (int q=threadIdx.x+blockIdx.x*blockDim.x;q<=npts;q+=gridDim.x*blockDim.x) {
       int2 this_vis = vis_in[q];
@@ -263,6 +263,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    
    int2 __shared__ inbuff[32];
    CmplxType __shared__ invalbuff[32];
+   const int bm_dim = (img_dim+gcf_dim-1)/gcf_dim*2;
 #ifdef __COMPUTE_GCF
    double T = gcf[0].x;
    double w = gcf[0].y;
@@ -273,20 +274,24 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    int top = blockIdx.y*blockDim.y*PTS;
    int this_x = left+threadIdx.x;
    int this_y = top+threadIdx.y;
+   if (this_x >= img_dim) return;
+   if (this_y >= img_dim) return;
    //auto r1 = img[this_x + img_dim * this_y].x;
    //auto i1 = img[this_x + img_dim * this_y].y;
+   //TODO use sum like the complex number it is (no more make_zero nonsense)
    CmplxType sum_r[PTS]; 
    CmplxType sum_i[PTS]; 
    auto foo = make_zero(out);
-   for (int p=0;p<PTS;p++) {sum_r[p].x = sum_i[p].x = 0.0;}
+   for (int p=0;p<PTS;p++) {sum_r[p].x = 0.0;}
+   for (int p=0;p<PTS;p++) {sum_i[p].x = 0.0;}
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
    int bm_y = top/half_gcf-1;
-   for (int y=bm_y<0?0:bm_y;(y<bm_y+2+(blockDim.y+half_gcf-1)/half_gcf)&&(y<img_dim/half_gcf);y++) {
-   for (int x=bm_x<0?0:bm_x;(x<bm_x+2+(blockDim.x+half_gcf-1)/half_gcf)&&(x<img_dim/half_gcf);x++) {
-   int bm_start = bookmarks[y*img_dim/half_gcf+x];
-   int bm_end = bookmarks[y*img_dim/half_gcf+x+1];
+   for (int y=bm_y<0?0:bm_y;(y<bm_y+2+(blockDim.y+half_gcf-1)/half_gcf)&&(y<(img_dim+half_gcf-1)/half_gcf);y++) {
+   for (int x=bm_x<0?0:bm_x;(x<bm_x+2+(blockDim.x+half_gcf-1)/half_gcf)&&(x<(img_dim+half_gcf-1)/half_gcf);x++) {
+   int bm_start = bookmarks[y*bm_dim+x];
+   int bm_end = bookmarks[y*bm_dim+x+1];
    for (int n=bm_start; n<= bm_end; n+=32) {
       //TODO make warp-synchronous?
       __syncthreads(); 
@@ -584,7 +589,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaMalloc(&bookmarks, sizeof(int)*((img_dim/gcf_dim)*(img_dim/gcf_dim)*4+1));
    vis2ints<<<4,256>>>(d_in, in_ints, npts);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
-   set_bookmarks<<<4,256>>>(in_ints, npts, gcf_dim/2, img_dim/gcf_dim*2, 
+   set_bookmarks<<<4,256>>>(in_ints, npts, gcf_dim/2, (img_dim+gcf_dim/2-1)/(gcf_dim/2), 
                                bookmarks);
    int2* h_ints = (int2*)malloc(sizeof(int2)*npts);
    cudaMemcpy(h_ints, in_ints, sizeof(int2)*npts, cudaMemcpyDeviceToHost);

@@ -162,10 +162,10 @@ int comp_grid (const void* A, const void* B) {
       int gridxb = mainxb/blocksize;
       int gridya = mainya/blocksize;
       int gridyb = mainyb/blocksize;
-      if (gridya*IMG_SIZE/blocksize+gridxa > 
-          gridyb*IMG_SIZE/blocksize+gridxb) return 1;
-      if (gridya*IMG_SIZE/blocksize+gridxa < 
-          gridyb*IMG_SIZE/blocksize+gridxb) return -1;
+      if (gridya*(IMG_SIZE+blocksize-1)/blocksize+gridxa > 
+          gridyb*(IMG_SIZE+blocksize-1)/blocksize+gridxb) return 1;
+      if (gridya*(IMG_SIZE+blocksize-1)/blocksize+gridxa < 
+          gridyb*(IMG_SIZE+blocksize-1)/blocksize+gridxb) return -1;
       Thalf suba = GCF_GRID*((*(T*)A).x-mainxa) + (*(T*)A).y-mainya;
       Thalf subb = GCF_GRID*((*(T*)B).x-mainxb) + (*(T*)B).y-mainyb;
       if (suba > subb) return 1;
