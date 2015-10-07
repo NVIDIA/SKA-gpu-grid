@@ -259,7 +259,7 @@ template <int gcf_dim, class CmplxType>
 __global__ void 
 __launch_bounds__(1024, 2)
 grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
-                              int img_dim, CmplxType* gcf, int* bookmarks) {
+                              int img_dim, CmplxType* gcf, int* bookmarks, int yoff) {
    
    int2 __shared__ inbuff[32];
    CmplxType __shared__ invalbuff[32];
@@ -271,16 +271,16 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    float p2 = p1*T;
 #endif
    int left = blockIdx.x*blockDim.x;
-   int top = blockIdx.y*blockDim.y*PTS;
+   int top = blockIdx.y*blockDim.y*PTS*GCF_STRIPES;
    int this_x = left+threadIdx.x;
-   int this_y = top+threadIdx.y;
+   int this_y = top+threadIdx.y+yoff;
    //if (this_x >= img_dim) return;
    //if (this_y >= img_dim) return;
    //auto r1 = img[this_x + img_dim * this_y].x;
    //auto i1 = img[this_x + img_dim * this_y].y;
    //TODO use sum like the complex number it is (no more make_zero nonsense)
    CmplxType sum[PTS]; 
-   for (int p=0;p<PTS;p++) {sum[p].x = sum[p].y = 0.0;}
+   for (int p=0;p<PTS;p++) {sum[p] = out[this_x + this_y*img_dim];}
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
@@ -325,10 +325,14 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       int sub_y = inn.y%GCF_GRID;
       auto r1 = in_valn.x;
       auto i1 = in_valn.y;
-      auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                     gcf_dim*b+a].x);
-      auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
-                     gcf_dim*b+a].y);
+      CmplxType ctmp = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+                     gcf_dim*b+a]);
+      auto r2 = ctmp.x;
+      auto i2 = ctmp.y;
+      //auto r2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+      //               gcf_dim*b+a].x);
+      //auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
+       //              gcf_dim*b+a].y);
 #endif
 #ifdef DEBUG1
       sum[p].x += 1.0;
@@ -595,12 +599,13 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    
    cudaMemset(d_out, 0, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim));
    cudaEventRecord(start);
-   grid_kernel_gather<GCF_DIM>
+   for (int stripe=0;stripe<GCF_STRIPES;stripe++)
+      grid_kernel_gather<GCF_DIM>
             <<<dim3((img_dim+gcf_dim/4-1)/(gcf_dim/4), (img_dim+gcf_dim/4-1)/(gcf_dim/4)),
-               dim3(gcf_dim/4, gcf_dim/4/PTS)>>> // <-- Must not truncate here
+               dim3(gcf_dim/4, gcf_dim/4/PTS/GCF_STRIPES)>>> // <-- Must not truncate here
    //         <<<dim3((img_dim+gcf_dim-1)/(gcf_dim), (img_dim+gcf_dim-1)/(gcf_dim)),
    //            dim3(gcf_dim, gcf_dim)>>>
-                             (d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf,bookmarks); 
+                             (d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf,bookmarks,stripe*gcf_dim/4/GCF_STRIPES); 
    //std::cout<< "grid_kernel_gather<<<(" << (img_dim+gcf_dim-1)/gcf_dim << ", " << (img_dim+gcf_dim/4-1)/(gcf_dim/4) << "), (" << gcf_dim << ", " << gcf_dim/4 << ")>>>()" << std::endl; 
    CUDA_CHECK_ERR(__LINE__,__FILE__);
 #else
