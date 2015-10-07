@@ -279,11 +279,8 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    //auto r1 = img[this_x + img_dim * this_y].x;
    //auto i1 = img[this_x + img_dim * this_y].y;
    //TODO use sum like the complex number it is (no more make_zero nonsense)
-   CmplxType sum_r[PTS]; 
-   CmplxType sum_i[PTS]; 
-   auto foo = make_zero(out);
-   for (int p=0;p<PTS;p++) {sum_r[p].x = 0.0;}
-   for (int p=0;p<PTS;p++) {sum_i[p].x = 0.0;}
+   CmplxType sum[PTS]; 
+   for (int p=0;p<PTS;p++) {sum[p].x = sum[p].y = 0.0;}
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
@@ -334,11 +331,11 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
                      gcf_dim*b+a].y);
 #endif
 #ifdef DEBUG1
-      sum_r[p].x += 1.0;
-      sum_i[p].x += n+q;
+      sum[p].x += 1.0;
+      sum[p].y += n+q;
 #else
-      sum_r[p].x += r1*r2 - i1*i2; 
-      sum_i[p].x += r1*i2 + r2*i1;
+      sum[p].x += r1*r2 - i1*i2; 
+      sum[p].y += r1*i2 + r2*i1;
 #endif
       //}
 
@@ -350,8 +347,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    for (int p=0;p<PTS;p++) {
       if (this_y + blockDim.y*p >= img_dim) continue;
       if (this_x >= img_dim) continue;
-      out[this_x + img_dim * (this_y+blockDim.y*p)].x = sum_r[p].x;
-      out[this_x + img_dim * (this_y+blockDim.y*p)].y = sum_i[p].x;
+      out[this_x + img_dim * (this_y+blockDim.y*p)] = sum[p];
    }
 }
 #if 0
