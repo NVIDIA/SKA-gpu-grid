@@ -274,8 +274,8 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    int top = blockIdx.y*blockDim.y*PTS;
    int this_x = left+threadIdx.x;
    int this_y = top+threadIdx.y;
-   if (this_x >= img_dim) return;
-   if (this_y >= img_dim) return;
+   //if (this_x >= img_dim) return;
+   //if (this_y >= img_dim) return;
    //auto r1 = img[this_x + img_dim * this_y].x;
    //auto i1 = img[this_x + img_dim * this_y].y;
    //TODO use sum like the complex number it is (no more make_zero nonsense)
@@ -295,11 +295,10 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    for (int n=bm_start; n<= bm_end; n+=32) {
       //TODO make warp-synchronous?
       __syncthreads(); 
-      if (threadIdx.x<32 && threadIdx.y==0) inbuff[threadIdx.x]=
-                                               in[n+threadIdx.x];
+      int raw_idx = threadIdx.x+blockDim.x*threadIdx.y;
+      if (raw_idx < 32) inbuff[raw_idx]= in[n+raw_idx];
+      else if (raw_idx < 64) invalbuff[raw_idx-32]= in_vals[n+raw_idx-32];
       //if (threadIdx.x<32 && threadIdx.y==blockDim.y-1) invalbuff[threadIdx.x]=in_vals[n+threadIdx.x];
-      if (threadIdx.x<32 && threadIdx.y==0) invalbuff[threadIdx.x]=
-                                               in_vals[n+threadIdx.x];
       __syncthreads(); 
       
    for (int q = 0; q<32 && n+q < bm_end; q++) {
@@ -307,7 +306,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       CmplxType in_valn = invalbuff[q];
       for (int p = 0; p < PTS; p++) {
       int main_y = inn.y/GCF_GRID;
-      if (this_y + blockDim.y*p > img_dim) continue;
+      if (this_y + blockDim.y*p >= img_dim) continue;
       int b = this_y + blockDim.y*p - main_y;
       if (b > half_gcf || b <= - half_gcf) continue;
       int main_x = inn.x/GCF_GRID;
@@ -349,7 +348,8 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    } //x
    } //y
    for (int p=0;p<PTS;p++) {
-      if (this_y + blockDim.y*p > img_dim) continue;
+      if (this_y + blockDim.y*p >= img_dim) continue;
+      if (this_x >= img_dim) continue;
       out[this_x + img_dim * (this_y+blockDim.y*p)].x = sum_r[p].x;
       out[this_x + img_dim * (this_y+blockDim.y*p)].y = sum_i[p].x;
    }
