@@ -306,9 +306,9 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       int2 inn = inbuff[q];
       CmplxType in_valn = invalbuff[q];
       for (int p = 0; p < PTS; p++) {
-      //TODO Don't floorf initially, just compare
       int main_y = inn.y/GCF_GRID;
-      int b = this_y + (32/PTS)*p - main_y;
+      if (this_y + blockDim.y*p > img_dim) continue;
+      int b = this_y + blockDim.y*p - main_y;
       if (b > half_gcf || b <= - half_gcf) continue;
       int main_x = inn.x/GCF_GRID;
       int a = this_x - main_x;
@@ -349,8 +349,9 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    } //x
    } //y
    for (int p=0;p<PTS;p++) {
-      out[this_x + img_dim * (this_y+(32/PTS)*p)].x = sum_r[p].x;
-      out[this_x + img_dim * (this_y+(32/PTS)*p)].y = sum_i[p].x;
+      if (this_y + blockDim.y*p > img_dim) continue;
+      out[this_x + img_dim * (this_y+blockDim.y*p)].x = sum_r[p].x;
+      out[this_x + img_dim * (this_y+blockDim.y*p)].y = sum_i[p].x;
    }
 }
 #if 0
@@ -600,7 +601,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaEventRecord(start);
    grid_kernel_gather<GCF_DIM>
             <<<dim3((img_dim+gcf_dim/4-1)/(gcf_dim/4), (img_dim+gcf_dim/4-1)/(gcf_dim/4)),
-               dim3(gcf_dim/4, gcf_dim/4/PTS)>>>
+               dim3(gcf_dim/4, gcf_dim/4/PTS)>>> // <-- Must not truncate here
    //         <<<dim3((img_dim+gcf_dim-1)/(gcf_dim), (img_dim+gcf_dim-1)/(gcf_dim)),
    //            dim3(gcf_dim, gcf_dim)>>>
                              (d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf,bookmarks); 
