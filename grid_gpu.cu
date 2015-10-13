@@ -465,14 +465,14 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    auto r1 = sum_r;
    auto i1 = sum_r;
    int half_gcf = gcf_dim/2;
-   in += npts/gridDim.x*blockIdx.x;
-   in_vals += npts/gridDim.x*blockIdx.x;
+   int local_npt = (npts+gridDim.x-1)/gridDim.x; //number of points assigned to this block
+   in += local_npt*blockIdx.x;
+   in_vals += local_npt*blockIdx.x;
    int last_idx = -INT_MAX;
    size_t gcf_y = threadIdx.y + blockIdx.y*blockDim.y;
-   int end_pt = npts/gridDim.x;
-   if (blockIdx.x==gridDim.x-1) end_pt = npts-npts/gridDim.x*blockIdx.x;
+   if (blockIdx.x==gridDim.x-1) local_npt = npts-local_npt*blockIdx.x;
    
-   for (int n=0; n<end_pt; n+=32) {
+   for (int n=0; n<local_npt; n+=32) {
 
       __syncthreads(); 
       int raw_idx = threadIdx.x+blockDim.x*threadIdx.y;
@@ -482,7 +482,7 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       //shm[threadIdx.x][threadIdx.y].x = 0.00;
       //shm[threadIdx.x][threadIdx.y].y = 0.00;
       __syncthreads(); 
-   for (int q = 0; q<32 && n+q < end_pt; q++) {
+   for (int q = 0; q<32 && n+q < local_npt; q++) {
       int2 inn = inbuff[q];
       CmplxType in_valn = invalbuff[q];
       r1 = in_valn.x;
@@ -493,13 +493,12 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       int this_x = gcf_dim*((main_x+half_gcf-(int)threadIdx.x)/gcf_dim)+(int)threadIdx.x;
       int this_y;
       this_y = gcf_dim*((main_y+half_gcf-gcf_y)/gcf_dim)+gcf_y;
-      if (this_x < 0 || this_x >= img_dim ||
-          this_y < 0 || this_y >= img_dim) {
+      if (main_x+half_gcf < threadIdx.x || this_x >= img_dim ||
+          main_y+half_gcf < gcf_y || this_y >= img_dim) {
           //TODO pad instead?
-          sum_r = 0.0;
-          sum_i = 0.0;
+          sum_r += 0.0;
+          sum_i += 0.0;
       } else {
-      //TODO is this the same as last time?
           int this_idx = this_x + img_dim * this_y;
           prof_trigger(0);
           if (last_idx != this_idx) {
