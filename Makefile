@@ -17,7 +17,10 @@ endif
 ifeq ($(COMPUTE_GCF),1)
 	USERFLAGS += -D__COMPUTE_GCF
 endif
-USERFLAGS += -Xcompiler -fopenmp
+ifeq ($(FAST_MATH),1)
+	USERFLAGS += -use_fast_math
+endif
+USERFLAGS += -Xcompiler -fopenmp 
 
 all:  grid GPUGrid.so
 
