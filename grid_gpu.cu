@@ -446,7 +446,6 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       out[this_x + img_dim * (this_y+blockDim.y*p)] = sum[p];
    }
 }
-#if 0
 template <int gcf_dim, class CmplxType>
 __global__ void 
 __launch_bounds__(1024, 1)
@@ -459,15 +458,15 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    float p1 = 2*3.1415926*w;
    float p2 = p1*T;
 #endif
-   CmplxType __shared__ shm[BLOCK_Y][gcf_dim];
    int2 __shared__ inbuff[32];
-   auto sum_r = make_zero(img);
-   auto sum_i = make_zero(img);
+   CmplxType __shared__ invalbuff[32];
+   auto sum_r = make_zero(out);
+   auto sum_i = make_zero(out);
    auto r1 = sum_r;
    auto i1 = sum_r;
    int half_gcf = gcf_dim/2;
    in += npts/gridDim.x*blockIdx.x;
-   out += npts/gridDim.x*blockIdx.x;
+   in_vals += npts/gridDim.x*blockIdx.x;
    int last_idx = -INT_MAX;
    size_t gcf_y = threadIdx.y + blockIdx.y*blockDim.y;
    int end_pt = npts/gridDim.x;
@@ -475,18 +474,25 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    
    for (int n=0; n<end_pt; n+=32) {
 
-      if (threadIdx.x<32 && threadIdx.y==0) inbuff[threadIdx.x]=in[n+threadIdx.x];
+      __syncthreads(); 
+      int raw_idx = threadIdx.x+blockDim.x*threadIdx.y;
+      if (raw_idx < 32) inbuff[raw_idx]= in[n+raw_idx];
+      else if (raw_idx < 64) invalbuff[raw_idx-32]= in_vals[n+raw_idx-32];
       
       //shm[threadIdx.x][threadIdx.y].x = 0.00;
       //shm[threadIdx.x][threadIdx.y].y = 0.00;
       __syncthreads(); 
    for (int q = 0; q<32 && n+q < end_pt; q++) {
       int2 inn = inbuff[q];
+      CmplxType in_valn = invalbuff[q];
+      r1 = in_valn.x;
+      i1 = in_valn.y;
       int main_y = inn.y/GCF_GRID;
       int main_x = inn.x/GCF_GRID;
-      int this_x = gcf_dim*((main_x+half_gcf-threadIdx.x-1)/gcf_dim)+threadIdx.x;
+      //TODO adjust to favor the high side
+      int this_x = gcf_dim*((main_x+half_gcf-(int)threadIdx.x)/gcf_dim)+(int)threadIdx.x;
       int this_y;
-      this_y = gcf_dim*((main_y+half_gcf-gcf_y-1)/gcf_dim)+gcf_y;
+      this_y = gcf_dim*((main_y+half_gcf-gcf_y)/gcf_dim)+gcf_y;
       if (this_x < 0 || this_x >= img_dim ||
           this_y < 0 || this_y >= img_dim) {
           //TODO pad instead?
@@ -498,16 +504,21 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
           prof_trigger(0);
           if (last_idx != this_idx) {
              prof_trigger(1);
-             r1 = img[this_idx].x;
-             i1 = img[this_idx].y;
+             if (last_idx != -INT_MAX) {
+                atomicAdd(&out[last_idx].x, sum_r);
+                atomicAdd(&out[last_idx].y, sum_i);
+             }
+             sum_r = sum_i = 0.0;
              last_idx = this_idx;
           }
 #ifdef __COMPUTE_GCF
           //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
           //double r2 = sin(phase);
           //double i2 = cos(phase);
-          float xsquare = (main_x-inn.x);
-          float ysquare = (main_x-inn.x);
+          int sub_x = inn.x%GCF_GRID;
+          int sub_y = inn.y%GCF_GRID;
+          float xsquare = (main_x-inn.x+sub_x*1.0/GCF_GRID);
+          float ysquare = (main_y-inn.y+sub_y*1.0/GCF_GRID);
           xsquare *= xsquare;
           ysquare *= ysquare;
           float phase = p1 - p2*sqrt(xsquare + ysquare);
@@ -523,99 +534,26 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
           auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
                          gcf_dim*b+a].y);
 #endif
-          sum_r = r1*r2 - i1*i2; 
-          sum_i = r1*i2 + r2*i1;
+#ifdef DEBUG1
+          sum_r += 1.0;
+          sum_i += n+q + npts/gridDim.x*blockIdx.x;
+#else
+          sum_r += r1*r2 - i1*i2; 
+          sum_i += r1*i2 + r2*i1;
+#endif
       }
 
      //reduce in two directions
       //WARNING: Adjustments must be made if blockDim.y and blockDim.x are no
       //         powers of 2 
       //Reduce using shuffle first
-#if 1
-      warp_reduce2(sum_r);
-      warp_reduce2(sum_i);
-#if 0
-      //Write immediately
-      if (0 == threadIdx.x%32) {
-         atomicAdd(&(out[n+q].x),sum_r);
-         atomicAdd(&(out[n+q].y),sum_i);
-      }
-#else
-      //Reduce again in shared mem
-      if (0 == threadIdx.x%32) {
-         //Save results as if shared memory were blockDim.y*32 by blockDim.x/32
-         //Each q writes a unique set of blockDim.y rows
-         shm[0][(threadIdx.y+q*blockDim.y)*blockDim.x/32+threadIdx.x/32].x = sum_r;
-         shm[0][(threadIdx.y+q*blockDim.y)*blockDim.x/32+threadIdx.x/32].y = sum_i;
-      }
-      if (q==31 || n+q == npts/gridDim.x-1) {
-         //Once we have filled all of shared memory, reduce further
-         //and write using atomicAdd
-         __syncthreads();
-         sum_r=shm[threadIdx.y][threadIdx.x].x;
-         sum_i=shm[threadIdx.y][threadIdx.x].y;
-         if (blockDim.x*blockDim.y>1024) {
-            warp_reduce2(sum_r);
-            warp_reduce2(sum_i);
-            if (0==(threadIdx.x + threadIdx.y*blockDim.x)%32) {
-               atomicAdd(&(out[n+(threadIdx.x+threadIdx.y*blockDim.x)/(blockDim.x*blockDim.y/32)].x), sum_r);
-               atomicAdd(&(out[n+(threadIdx.x+threadIdx.y*blockDim.x)/(blockDim.x*blockDim.y/32)].y), sum_i);
-            }
-         } else {
-            warp_reduce2(sum_r,blockDim.x*blockDim.y/32); 
-            warp_reduce2(sum_i,blockDim.x*blockDim.y/32); 
-            if (0==(threadIdx.x + threadIdx.y*blockDim.x)%(blockDim.x*blockDim.y/32)) {
-               atomicAdd(&(out[n+(threadIdx.x+threadIdx.y*blockDim.x)/(blockDim.x*blockDim.y/32)].x), sum_r);
-               atomicAdd(&(out[n+(threadIdx.x+threadIdx.y*blockDim.x)/(blockDim.x*blockDim.y/32)].y), sum_i);
-            }
-         }
-      }
-#endif
-#else
-
-      //Simple reduction
-      
-      shm[threadIdx.y][threadIdx.x].x = sum_r;
-      shm[threadIdx.y][threadIdx.x].y = sum_i;
-      __syncthreads();
-      //Reduce in y
-      for(int s = blockDim.y/2;s>0;s/=2) {
-         if (threadIdx.y < s) {
-           shm[threadIdx.y][threadIdx.x].x += shm[threadIdx.y+s][threadIdx.x].x;
-           shm[threadIdx.y][threadIdx.x].y += shm[threadIdx.y+s][threadIdx.x].y;
-         }
-         __syncthreads();
-      }
-
-      //Reduce the top row
-      for(int s = blockDim.x/2;s>16;s/=2) {
-         if (0 == threadIdx.y && threadIdx.x < s) 
-                    shm[0][threadIdx.x].x += shm[0][threadIdx.x+s].x;
-         if (0 == threadIdx.y && threadIdx.x < s) 
-                    shm[0][threadIdx.x].y += shm[0][threadIdx.x+s].y;
-         __syncthreads();
-      }
-      if (threadIdx.y == 0) {
-         //Reduce the final warp using shuffle
-         CmplxType tmp = shm[0][threadIdx.x];
-         for(int s = blockDim.x < 16 ? blockDim.x : 16; s>0;s/=2) {
-            tmp.x += __shfl_down(tmp.x,s);
-            tmp.y += __shfl_down(tmp.y,s);
-         }
-         if (threadIdx.x == 0) {
-            atomicAdd(&(out[n+q].x),tmp.x);
-            atomicAdd(&(out[n+q].y),tmp.y);
-            //out[n+q].x=tmp.x;
-            //out[n+q].y=tmp.y;
-         }
-      }
-      __syncthreads();
-#endif
    } //q
-   __syncthreads();
    } //n
+   if (last_idx != -INT_MAX) {
+      atomicAdd(&out[last_idx].x, sum_r);
+      atomicAdd(&out[last_idx].y, sum_i);
+   }
 }
-#endif
 
 template <class CmplxType>
 void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, size_t img_dim, 
