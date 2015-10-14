@@ -23,10 +23,27 @@ __device__ int2 convert(int asize, int Qpx, float pin) {
    return make_int2(int(round), int(frac*Qpx));
 }
 
-__device__ double atomicAdd(double* address, double val)
+__device__ void atomicAddWrap(float* address, float val)
 {
 #ifdef __NOATOMIC
-    return *address+val;
+    *address+=val;
+#else
+   #ifdef __CASATOMIC
+  float old_v, new_v;
+
+  do {
+    old_v = *address;
+    new_v = old_v + val;
+  } while (atomicCAS((unsigned *) address, __float_as_int(old_v), __float_as_int(new_v)) != __float_as_int(old_v));
+   #else
+   atomicAdd(address, val);
+   #endif
+#endif
+}
+__device__ void atomicAddWrap(double* address, double val)
+{
+#ifdef __NOATOMIC
+    *address+=val;
 #else
     unsigned long long int* address_as_ull =
                              (unsigned long long int*)address;
@@ -37,7 +54,6 @@ __device__ double atomicAdd(double* address, double val)
                         __double_as_longlong(val +
                                              __longlong_as_double(assumed)));
     } while (assumed != old);
-    return __longlong_as_double(old);
 #endif
 }
 
@@ -107,11 +123,11 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
                            gcf_dim*b+a].y;
 #endif
 #ifdef DEBUG1
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, n+q);
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x)+gcf_dim*b+a].y);
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].x, n+q);
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].y, gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x)+gcf_dim*b+a].y);
 #else
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, r1*r2 - i1*i2); 
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, r1*i2 + r2*i1); 
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].x, r1*r2 - i1*i2); 
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].y, r1*i2 + r2*i1); 
             //out[main_x+a+img_dim*(main_y+b)].x += r1*r2 - i1*i2; 
             //out[main_x+a+img_dim*(main_y+b)].y += r1*i2 + r2*i1; 
            
@@ -190,11 +206,11 @@ grid_kernel_basic(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts
                            gcf_dim*b+a].y;
 #endif
 #ifdef DEBUG1
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, n+q);
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x)+gcf_dim*b+a].y);
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].x, n+q);
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].y, gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x)+gcf_dim*b+a].y);
 #else
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].x, r1*r2 - i1*i2); 
-            atomicAdd(&out[main_x+a+img_dim*(main_y+b)].y, r1*i2 + r2*i1); 
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].x, r1*r2 - i1*i2); 
+            atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)].y, r1*i2 + r2*i1); 
 #endif
          }
       }
@@ -504,8 +520,8 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
           if (last_idx != this_idx) {
              prof_trigger(1);
              if (last_idx != -INT_MAX) {
-                atomicAdd(&out[last_idx].x, sum_r);
-                atomicAdd(&out[last_idx].y, sum_i);
+                atomicAddWrap(&out[last_idx].x, sum_r);
+                atomicAddWrap(&out[last_idx].y, sum_i);
              }
              sum_r = sum_i = 0.0;
              last_idx = this_idx;
@@ -549,8 +565,8 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    } //q
    } //n
    if (last_idx != -INT_MAX) {
-      atomicAdd(&out[last_idx].x, sum_r);
-      atomicAdd(&out[last_idx].y, sum_i);
+      atomicAddWrap(&out[last_idx].x, sum_r);
+      atomicAddWrap(&out[last_idx].y, sum_i);
    }
 }
 
