@@ -11,6 +11,7 @@
 #define PTS 2
 #define GCF_STRIPES 4
 //#define DEBUG1
+#define POLARIZATIONS 4
 #endif
 
 
