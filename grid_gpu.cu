@@ -81,7 +81,7 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
       //if (threadIdx.x<32 && threadIdx.y==blockDim.y-1) invalbuff[threadIdx.x]=in_vals[n+threadIdx.x];
       __syncthreads(); 
       
-   for (int q=threadIdx.y;q<32;q+=blockDim.y) {
+   for (int q=threadIdx.y;q<32&&n+q<npts;q+=blockDim.y) {
       CmplxType inn = inbuff[q];
       int sub_x = floor(GCF_GRID*(inn.x-floor(inn.x)));
       int sub_y = floor(GCF_GRID*(inn.y-floor(inn.y)));
@@ -124,8 +124,8 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
                auto r1 = in_vals[(n+q)*POLARIZATIONS+p].x;
                auto i1 = in_vals[(n+q)*POLARIZATIONS+p].y;
 #ifdef DEBUG1
-               atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)+p*img_dim*img_dim].x, n+q);
-               atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)+p*img_dim*img_dim].y, gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x)+gcf_dim*b+a].y);
+               atomicAddWrap(&out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].x, 1.0);
+               atomicAddWrap(&out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].y, n+q);
 #else
                atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)+p*img_dim*img_dim].x, r1*r2 - i1*i2); 
                atomicAddWrap(&out[main_x+a+img_dim*(main_y+b)+p*img_dim*img_dim].y, r1*i2 + r2*i1); 
@@ -241,8 +241,8 @@ grid_kernel_small_gcf(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t 
       int main_y = floor(inn.y); 
       auto sum_r = make_zero(out);
       auto sum_i = make_zero(out);
-      int a = -gcf_dim/2 + threadIdx.x%gcf_dim;
-      for(int b = -gcf_dim/2+threadIdx.x/gcf_dim;b<gcf_dim/2;b+=blockDim.x/gcf_dim)
+      int a = -gcf_dim/2 + (int)threadIdx.x%gcf_dim;
+      for(int b = -gcf_dim/2+(int)threadIdx.x/gcf_dim;b<gcf_dim/2;b+=blockDim.x/gcf_dim)
       {
          //auto this_img = img[main_x+a+img_dim*(main_y+b)]; 
          //auto r1 = this_img.x;
@@ -376,7 +376,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    //if (this_x >= img_dim) return;
    //if (this_y >= img_dim) return;
    CmplxType sum[PTS]; 
-   for (int p=0;p<PTS;p++) {sum[p] = out[this_x + this_y*img_dim];}
+   for (int p=0;p<PTS;p++) {sum[p] = out[this_x + this_y*img_dim+p*blockDim.y*img_dim];}
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
@@ -404,8 +404,6 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       int main_x = inn.x/GCF_GRID;
       int a = this_x - main_x;
       if (a > half_gcf || a <= - half_gcf) continue;
-      auto r1 = in_valn.x;
-      auto i1 = in_valn.y;
 #ifdef __COMPUTE_GCF
       //double phase = 2*3.1415926*w*(1-T*sqrt((main_x-inn.x)*(main_x-inn.x)+(main_y-inn.y)*(main_y-inn.y)));
       //double r2 = sin(phase);
@@ -431,6 +429,8 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       //auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
        //              gcf_dim*b+a].y);
 #endif
+      auto r1 = in_valn.x;
+      auto i1 = in_valn.y;
 #ifdef DEBUG1
       sum[p].x += 1.0;
       sum[p].y += n+q;
@@ -615,7 +615,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
 #endif
    //offset gcf to point to the middle of the first GCF for cleaner code later
    d_gcf += gcf_dim*(gcf_dim-1)/2-1;
-   CmplxType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim*POLARIZATIONS;
+   CmplxType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim;
 
 #ifdef __GATHER
    int2* in_ints;
