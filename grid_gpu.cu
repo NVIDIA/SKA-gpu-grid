@@ -375,8 +375,12 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    int this_y = top+threadIdx.y+yoff;
    //if (this_x >= img_dim) return;
    //if (this_y >= img_dim) return;
-   CmplxType sum[PTS]; 
-   for (int p=0;p<PTS;p++) {sum[p] = out[this_x + this_y*img_dim+p*blockDim.y*img_dim];}
+   CmplxType sum[POLARIZATIONS][PTS]; 
+   for (int p=0;p<PTS;p++) {
+      for (int pz=0;pz<POLARIZATIONS;pz++) {
+         sum[pz][p] = out[this_x + this_y*img_dim+p*blockDim.y*img_dim+pz*img_dim*img_dim];
+      }
+   }
    int half_gcf = gcf_dim/2;
    
    int bm_x = left/half_gcf-1;
@@ -429,16 +433,17 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       //auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
        //              gcf_dim*b+a].y);
 #endif
-      auto r1 = in_valn.x;
-      auto i1 = in_valn.y;
+      for (int pz=0;pz<POLARIZATIONS;pz++) {
+         auto r1 = in_valn.x;
+         auto i1 = in_valn.y;
 #ifdef DEBUG1
-      sum[p].x += 1.0;
-      sum[p].y += n+q;
+         sum[pz][p].x += 1.0;
+         sum[pz][p].y += n+q;
 #else
-      sum[p].x += r1*r2 - i1*i2; 
-      sum[p].y += r1*i2 + r2*i1;
+         sum[pz][p].x += r1*r2 - i1*i2; 
+         sum[pz][p].y += r1*i2 + r2*i1;
 #endif
-      //}
+      } //pz
 
    } //p
    } //q
@@ -448,7 +453,9 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    for (int p=0;p<PTS;p++) {
       if (this_y + blockDim.y*p >= img_dim) continue;
       if (this_x >= img_dim) continue;
-      out[this_x + img_dim * (this_y+blockDim.y*p)] = sum[p];
+      for (int pz=0;pz<POLARIZATIONS;pz++) {
+         out[this_x + img_dim * (this_y+blockDim.y*p) + pz*img_dim*img_dim] = sum[pz][p];
+      }
    }
 }
 template <int gcf_dim, class CmplxType>
