@@ -473,13 +473,13 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    float p2 = p1*T;
 #endif
    int2 __shared__ inbuff[32];
-   CmplxType __shared__ invalbuff[32];
+   CmplxType __shared__ invalbuff[POLARIZATIONS][32+32/POLARIZATIONS];
    CmplxType sum[POLARIZATIONS];
    CmplxType r1;
    int half_gcf = gcf_dim/2;
    int local_npt = (npts+gridDim.x-1)/gridDim.x; //number of points assigned to this block
    in += local_npt*blockIdx.x;
-   in_vals += local_npt*blockIdx.x;
+   in_vals += local_npt*blockIdx.x*POLARIZATIONS;
    int last_idx = -INT_MAX;
    size_t gcf_y = threadIdx.y + blockIdx.y*blockDim.y;
    if (blockIdx.x==gridDim.x-1) local_npt = npts-local_npt*blockIdx.x;
@@ -491,7 +491,7 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       if (raw_idx < 32) inbuff[raw_idx]= in[n+raw_idx];
       else {
          raw_idx -= 32;
-         if (raw_idx < 32*POLARIZATIONS) invalbuff[raw_idx-32]= in_vals[n+raw_idx-32];
+         if (raw_idx < 32*POLARIZATIONS) invalbuff[raw_idx%POLARIZATIONS][raw_idx/POLARIZATIONS]= in_vals[n*POLARIZATIONS+raw_idx];
       }
       
       //shm[threadIdx.x][threadIdx.y].x = 0.00;
@@ -547,9 +547,10 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
 #endif
           for (int pz=0;pz<POLARIZATIONS;pz++) {
              r1 = invalbuff[pz][q];
+             //r1 = in_vals[POLARIZATIONS*(n+q)+pz];
 #ifdef DEBUG1
              sum[pz].x += 1.0;
-             sum[pz].y += n+q + npts/gridDim.x*blockIdx.x;
+             sum[pz].y += n+q + blockIdx.x*((npts+gridDim.x-1)/gridDim.x); 
 #else
              sum[pz].x += r1.x*r2 - r1.y*i2; 
              sum[pz].y += r1.x*i2 + r2*r1.y;
