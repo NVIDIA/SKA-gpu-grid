@@ -71,18 +71,71 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
                         GCF_DIM*b+a].x;
          PRECISION i2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
                         GCF_DIM*b+a].y;
-         PRECISION r1 = in_vals[n].x;
-         PRECISION i1 = in_vals[n].y;
+         PRECISION r1, i1;
+         r1 = in_vals[n].x;
+         i1 = in_vals[n].y;
          if (main_x+a < 0 || main_y+b < 0 || 
              main_x+a >= IMG_SIZE  || main_y+b >= IMG_SIZE) {
          } else {
 #ifdef DEBUG1
-            out[main_x+a+IMG_SIZE*(main_y+b)].x += 1;
-            out[main_x+a+IMG_SIZE*(main_y+b)].y += n;
+               out[main_x+a+IMG_SIZE*(main_y+b)].x += 1;
+               out[main_x+a+IMG_SIZE*(main_y+b)].y += n;
 #else
-            out[main_x+a+IMG_SIZE*(main_y+b)].x += r1*r2-i1*i2; 
-            out[main_x+a+IMG_SIZE*(main_y+b)].y += r1*i2+r2*i1;
+               out[main_x+a+IMG_SIZE*(main_y+b)].x += r1*r2-i1*i2; 
+               out[main_x+a+IMG_SIZE*(main_y+b)].y += r1*i2+r2*i1;
 #endif
+         }
+      }
+      //std::cout << "val = " << out[n].r << "+ i" << out[n].i << std::endl;
+   } 
+   gcf -= GCF_DIM*(GCF_DIM-1)/2-1;
+}
+void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, size_t img_dim, PRECISION2 *gcf, size_t gcf_dim) {
+//degrid on the CPU
+//  out (out) - the output image
+//  in  (in)  - the input locations
+//  in_vals (in) - input values
+//  npts (in) - number of locations
+//  img_dim (in) - dimension of the image
+//  gcf (in) - the gridding convolution function
+//  gcf_dim (in) - dimension of the GCF
+
+   //Zero the output
+   //offset gcf to point to the middle for cleaner code later
+   gcf += GCF_DIM*(GCF_DIM-1)/2-1;
+//#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
+//#pragma omp parallel for
+   for(size_t n=0; n<NPOINTS; n++) {
+      //std::cout << "in = " << in[n].x << ", " << in[n].y << std::endl;
+      int sub_x = floorf(GCF_GRID*(in[n].x-floorf(in[n].x)));
+      int sub_y = floorf(GCF_GRID*(in[n].y-floorf(in[n].y)));
+      //std::cout << "sub = "  << sub_x << ", " << sub_y << std::endl;
+      int main_x = floor(in[n].x); 
+      int main_y = floor(in[n].y); 
+      //std::cout << "main = " << main_x << ", " << main_y << std::endl;
+//      #pragma acc parallel loop collapse(2) reduction(+:sum_r,sum_i) vector
+//#pragma omp parallel for collapse(2) reduction(+:sum_r, sum_i)
+      for (int a=GCF_DIM/2; a>-GCF_DIM/2 ;a--)
+      for (int b=GCF_DIM/2; b>-GCF_DIM/2 ;b--) {
+         PRECISION r2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
+                        GCF_DIM*b+a].x;
+         PRECISION i2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
+                        GCF_DIM*b+a].y;
+         PRECISION r1, i1;
+         if (main_x+a < 0 || main_y+b < 0 || 
+             main_x+a >= IMG_SIZE  || main_y+b >= IMG_SIZE) {
+         } else {
+            for (int p=0;p< POLARIZATIONS;p++) {
+               r1 = in_vals[POLARIZATIONS*n+p].x;
+               i1 = in_vals[POLARIZATIONS*n+p].y;
+#ifdef DEBUG1
+               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].x += 1;
+               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].y += n;
+#else
+               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].x += r1*r2-i1*i2; 
+               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].y += r1*i2+r2*i1;
+#endif
+            }
          }
       }
       //std::cout << "val = " << out[n].r << "+ i" << out[n].i << std::endl;
@@ -179,14 +232,14 @@ int main(void) {
 
 #ifdef __MANAGED
    PRECISION2* out, *in, *in_vals, *gcf;
-   cudaMallocManaged(&out, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM));
+   cudaMallocManaged(&out, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    cudaMallocManaged(&in, sizeof(PRECISION2)*NPOINTS);
-   cudaMallocManaged(&in_vals, sizeof(PRECISION2)*NPOINTS);
+   cudaMallocManaged(&in_vals, sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
    cudaMallocManaged(&gcf, sizeof(PRECISION2)*64*GCF_DIM*GCF_DIM);
 #else
-   PRECISION2* out = (PRECISION2*) malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM));
+   PRECISION2* out = (PRECISION2*) malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    PRECISION2* in = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS);
-   PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS);
+   PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
 
    PRECISION2 *gcf = (PRECISION2*) malloc(64*GCF_DIM*GCF_DIM*sizeof(PRECISION2));
 #endif
@@ -196,18 +249,20 @@ int main(void) {
    for(size_t n=0; n<NPOINTS; n++) {
       in[n].x = ((float)rand())/RAND_MAX*IMG_SIZE;
       in[n].y = ((float)rand())/RAND_MAX*IMG_SIZE;
-      in_vals[n].x = ((float)rand())/RAND_MAX;
-      in_vals[n].y = ((float)rand())/RAND_MAX;
+      for (int p=0;p<POLARIZATIONS;p++) {
+         in_vals[POLARIZATIONS*n+p].x = ((float)rand())/RAND_MAX;
+         in_vals[POLARIZATIONS*n+p].y = ((float)rand())/RAND_MAX;
+      }
    }
    //Zero the data in the offset areas
    //for (int x=-IMG_SIZE*GCF_DIM-GCF_DIM;x<0;x++) {
    //   out[x].x = 0.0; out[x].y = 0.0;
   // }
-   for (int x=0;x<IMG_SIZE*GCF_DIM+GCF_DIM;x++) {
+   for (int x=0;x<IMG_SIZE*GCF_DIM*POLARIZATIONS+GCF_DIM*POLARIZATIONS;x++) {
       out[x].x=0.0;
       out[x].y=0.0;
-      out[x+IMG_SIZE*IMG_SIZE+IMG_SIZE*GCF_DIM+GCF_DIM].x = 0.0;
-      out[x+IMG_SIZE*IMG_SIZE+IMG_SIZE*GCF_DIM+GCF_DIM].y = 0.0;
+      out[x+(IMG_SIZE*IMG_SIZE+IMG_SIZE*GCF_DIM+GCF_DIM)*POLARIZATIONS].x = 0.0;
+      out[x+(IMG_SIZE*IMG_SIZE+IMG_SIZE*GCF_DIM+GCF_DIM)*POLARIZATIONS].y = 0.0;
    }
 
 
@@ -221,14 +276,18 @@ int main(void) {
 #endif
 #endif
    
+   //auto tmp = in[0];
+   //in[0] = in[204];
+   //in[204]=tmp;
    std::cout << "Computing on GPU..." << std::endl;
    gridGPU(out,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
-   PRECISION2 *out_cpu=(PRECISION2*)malloc(sizeof(PRECISION2)*IMG_SIZE*IMG_SIZE);
-   memset(out_cpu, 0, sizeof(PRECISION2)*IMG_SIZE*IMG_SIZE);
+   PRECISION2 *out_cpu=(PRECISION2*)malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
+   memset(out_cpu, 0, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    
-   gridCPU(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
+   gridCPU_pz(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
+   //gridCPU(out+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
 #endif
 
 
@@ -237,12 +296,15 @@ int main(void) {
    for (size_t yy = 0; yy < IMG_SIZE; yy++) {
    for (size_t xx = 0; xx < IMG_SIZE; xx++) {
      int n = GCF_DIM+IMG_SIZE*GCF_DIM+yy*IMG_SIZE+xx;
-     if (fabs(out[n].x-out_cpu[n].x) > 0.0000001 ||
-         fabs(out[n].y-out_cpu[n].y) > 0.0000001 )
-        std::cout << xx << ", " << yy << " : " 
-                  << out[n].x << ", " << out[n].y 
-                  << " vs. " << out_cpu[n].x << ", " << out_cpu[n].y 
-                  << std::endl;
+     for (int p = 0; p < IMG_SIZE*IMG_SIZE*POLARIZATIONS; p+=IMG_SIZE*IMG_SIZE) {
+        if (fabs(out[n+p].x-out_cpu[n+p].x) > 0.0000001 ||
+            fabs(out[n+p].y-out_cpu[n+p].y) > 0.0000001 )
+           std::cout << xx << ", " << yy << "[" << p/IMG_SIZE/IMG_SIZE << "] : " 
+                     << "(" << n+p-(GCF_DIM+IMG_SIZE*GCF_DIM) << ") "
+                     << out[n+p].x << ", " << out[n+p].y 
+                     << " vs. " << out_cpu[n+p].x << ", " << out_cpu[n+p].y 
+                     << std::endl;
+     }
    }
    }
    //std::cout << "free out_cpu" << std::endl;
