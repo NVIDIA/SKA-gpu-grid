@@ -8,10 +8,13 @@
 //BLOCK_Y affects only MOVING_WINDOW
 #define BLOCK_Y 4 
 //PTS and GCF_STRIPES affect only GATHER
+//#define PTS 2
+//#define GCF_STRIPES 4 
+//#define POLARIZATIONS 1
 #define PTS 2
-#define GCF_STRIPES 4
+#define GCF_STRIPES 4 
+#define POLARIZATIONS 1
 //#define DEBUG1
-#define POLARIZATIONS 4
 #endif
 
 

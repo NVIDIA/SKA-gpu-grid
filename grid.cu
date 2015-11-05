@@ -245,6 +245,29 @@ int main(void) {
 #endif
 
    init_gcf(gcf, GCF_DIM);
+#ifdef __FILE_INPUT
+   FILE *uvw_f = fopen("UVW_in.dat", "r");
+   int junka,junkb,junkc;
+   float fjunka, fjunkb, fjunkc;
+   float max_x, min_x, max_y, min_y;
+   max_x = max_y = INT_MIN;
+   min_x = min_y = INT_MAX;
+   for(size_t n=0; n<NPOINTS; n++) {
+      fscanf(uvw_f, "%d,%d,%d: %f, %f, %f\n", &junka, &junkb, &junkc, &fjunka, &fjunkb, &fjunkc);
+      in[n].x = fjunka*IMG_SIZE/2048.;
+      in[n].y = fjunkb*IMG_SIZE/2048.;
+      min_x = in[n].x < min_x ? in[n].x : min_x;
+      max_x = in[n].x > max_x ? in[n].x : max_x;
+      min_y = in[n].y < min_y ? in[n].y : min_y;
+      max_y = in[n].y > max_y ? in[n].y : max_y;
+      for (int p=0;p<POLARIZATIONS;p++) {
+         in_vals[POLARIZATIONS*n+p].x = ((float)rand())/RAND_MAX;
+         in_vals[POLARIZATIONS*n+p].y = ((float)rand())/RAND_MAX;
+      }
+   }
+   printf("%f -- %f, %f -- %f\n", min_x, max_x, min_y, max_y);
+   fclose(uvw_f);
+#else
    srand(2541617);
    for(size_t n=0; n<NPOINTS; n++) {
       in[n].x = ((float)rand())/RAND_MAX*IMG_SIZE;
@@ -254,6 +277,7 @@ int main(void) {
          in_vals[POLARIZATIONS*n+p].y = ((float)rand())/RAND_MAX;
       }
    }
+#endif
    //Zero the data in the offset areas
    //for (int x=-IMG_SIZE*GCF_DIM-GCF_DIM;x<0;x++) {
    //   out[x].x = 0.0; out[x].y = 0.0;

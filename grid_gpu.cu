@@ -62,7 +62,7 @@ __device__ float make_zero(float2* in) { return (float)0.0;}
 
 template <int gcf_dim, class CmplxType>
 __global__ void 
-__launch_bounds__(256, 2)
+__launch_bounds__(256, 8)
 grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
                               size_t img_dim, CmplxType* gcf) {
    
@@ -119,7 +119,7 @@ grid_kernel(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts,
             auto i2 = gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
                            gcf_dim*b+a].y;
 #endif
-            #pragma unroll
+            //#pragma unroll
             for (int p=0;p<POLARIZATIONS;p++) {
                auto r1 = in_vals[(n+q)*POLARIZATIONS+p].x;
                auto i1 = in_vals[(n+q)*POLARIZATIONS+p].y;
@@ -356,7 +356,11 @@ __global__ void set_bookmarks(int2* vis_in, int npts, int blocksize, int blockgr
 }
 template <int gcf_dim, class CmplxType>
 __global__ void 
+#if POLARIZATIONS == 1
 __launch_bounds__(1024, 2)
+#else
+__launch_bounds__(GCF_DIM*GCF_DIM/4/4/GCF_STRIPES/PTS, 12)
+#endif
 grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
                               int img_dim, CmplxType* gcf, int* bookmarks, int yoff) {
    
@@ -377,6 +381,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    //if (this_y >= img_dim) return;
    CmplxType sum[POLARIZATIONS][PTS]; 
    for (int p=0;p<PTS;p++) {
+      //#pragma unroll
       for (int pz=0;pz<POLARIZATIONS;pz++) {
          sum[pz][p] = out[this_x + this_y*img_dim+p*blockDim.y*img_dim+pz*img_dim*img_dim];
       }
@@ -435,6 +440,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       //auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
        //              gcf_dim*b+a].y);
 #endif
+      //#pragma unroll
       for (int pz=0;pz<POLARIZATIONS;pz++) {
          CmplxType r1 = invalbuff[pz][q];
          //CmplxType r1 = in_vals[p+POLARIZATIONS*(n+q)];
@@ -455,6 +461,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    for (int p=0;p<PTS;p++) {
       if (this_y + blockDim.y*p >= img_dim) continue;
       if (this_x >= img_dim) continue;
+      //#pragma unroll
       for (int pz=0;pz<POLARIZATIONS;pz++) {
          out[this_x + img_dim * (this_y+blockDim.y*p) + pz*img_dim*img_dim] = sum[pz][p];
       }
@@ -462,7 +469,7 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
 }
 template <int gcf_dim, class CmplxType>
 __global__ void 
-__launch_bounds__(1024, 1)
+__launch_bounds__(GCF_DIM*BLOCK_Y, 4)
 grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
                               int img_dim, CmplxType* gcf) {
    
@@ -514,6 +521,7 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
           if (last_idx != this_idx) {
              prof_trigger(1);
              if (last_idx != -INT_MAX) {
+                //#pragma unroll
                 for (int pz=0;pz<POLARIZATIONS;pz++) {
                    atomicAddWrap(&out[last_idx+pz*img_dim*img_dim].x, sum[pz].x);
                    atomicAddWrap(&out[last_idx+pz*img_dim*img_dim].y, sum[pz].y);
@@ -545,6 +553,7 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
           auto i2 = __ldg(&gcf[gcf_dim*gcf_dim*(GCF_GRID*sub_y+sub_x) + 
                          gcf_dim*b+a].y);
 #endif
+          //#pragma unroll
           for (int pz=0;pz<POLARIZATIONS;pz++) {
              r1 = invalbuff[pz][q];
              //r1 = in_vals[POLARIZATIONS*(n+q)+pz];
@@ -565,6 +574,7 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    } //q
    } //n
    if (last_idx != -INT_MAX) {
+      //#pragma unroll
       for(int pz=0;pz<POLARIZATIONS;pz++) {
          atomicAddWrap(&out[last_idx+pz*img_dim*img_dim].x, sum[pz].x);
          atomicAddWrap(&out[last_idx+pz*img_dim*img_dim].y, sum[pz].y);
