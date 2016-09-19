@@ -1,7 +1,7 @@
 # GPUGrid
 Gridding for the GPU
 
-Build options:
+Build options (more parameter options in Defines.h):
 
 PRECISION=double,float - double or single precision (default: double)
 
