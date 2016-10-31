@@ -5,6 +5,21 @@
 #include "grid_gpu.cuh"
 #include "Defines.h"
 #include "cuda.h"
+#ifdef __HDF5_INPUT
+#include "H5Cpp.h"
+using namespace H5;
+struct hdf5_unit
+{
+  short u;
+  short v;
+  short sub_u;
+  short sub_v;
+  float weight;
+  float r;
+  float i;
+  short w;
+};
+#endif
 
 //With managed memory, grid.cpp must be compiled as CUDA
 //in which case float2 and double2 are predefined.
@@ -55,7 +70,7 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
    gcf += GCF_DIM*(GCF_DIM-1)/2-1;
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
-   for(size_t n=0; n<NPOINTS; n++) {
+   for(size_t n=0; n<npts; n++) {
       //std::cout << "in = " << in[n].x << ", " << in[n].y << std::endl;
       int sub_x = floorf(GCF_GRID*(in[n].x-floorf(in[n].x)));
       int sub_y = floorf(GCF_GRID*(in[n].y-floorf(in[n].y)));
@@ -105,7 +120,7 @@ void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npt
    gcf += GCF_DIM*(GCF_DIM-1)/2-1;
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
-   for(size_t n=0; n<NPOINTS; n++) {
+   for(size_t n=0; n<npts; n++) {
       //std::cout << "in = " << in[n].x << ", " << in[n].y << std::endl;
       int sub_x = floorf(GCF_GRID*(in[n].x-floorf(in[n].x)));
       int sub_y = floorf(GCF_GRID*(in[n].y-floorf(in[n].y)));
@@ -228,7 +243,7 @@ int comp_grid (const void* A, const void* B) {
 #endif
 
 
-int main(void) {
+int main(int argc, char** argv) {
 
 #ifdef __MANAGED
    PRECISION2* out, *in, *in_vals, *gcf;
@@ -243,16 +258,63 @@ int main(void) {
 
    PRECISION2 *gcf = (PRECISION2*) malloc(64*GCF_DIM*GCF_DIM*sizeof(PRECISION2));
 #endif
+   int npts=NPOINTS;
+
+  // ***  Report run parameters ***
+   printf("*** GPU Gridding ***\n");
+#ifdef DEBUG1
+   printf("\n   Debug\n\n");
+#endif
+#ifdef __GATHER
+   printf("   Gather strategy\n");
+#else
+   #ifdef __MOVING_WINDOW
+      printf("   Moving Window strategy\n");
+   #else
+      printf("   Simple scatter strategy\n");
+   #endif
+   #ifdef __NOATOMIC
+      printf("   No atomics\n");
+   #endif
+#endif
+#if PRECISION==double
+   printf("   Double precision\n");
+#else
+   printf("   Single precision\n");
+#endif
+   printf("   Image size %dx%d\n", IMG_SIZE, IMG_SIZE);
+   printf("   GCF size %dx%d\n", GCF_DIM, GCF_DIM);
+   printf("   %d polarizations\n", POLARIZATIONS);
+   printf("   %d visibilities\n", npts);
+   printf("   Subgrid: 1/%d\n", GCF_GRID);
+#ifdef __FILE_INPUT
+   printf("   File input\n");
+#endif
+#ifdef __HDF5_INPUT
+   printf("   HDF5 input\n");
+#endif
+#ifdef __COMPUTE_GCF
+   printf("   Computed GCF\n"); 
+#endif
+   printf("\n\n\n");
+
 
    init_gcf(gcf, GCF_DIM);
 #ifdef __FILE_INPUT
+   char filename[400];
+   if (argc>1)
+   {
+      filename = argv[1];
+   } else {
+      sprintf(filename, "%s", "UVW_in.dat");
+   }
    FILE *uvw_f = fopen("UVW_in.dat", "r");
    int junka,junkb,junkc;
    float fjunka, fjunkb, fjunkc;
    float max_x, min_x, max_y, min_y;
    max_x = max_y = INT_MIN;
    min_x = min_y = INT_MAX;
-   for(size_t n=0; n<NPOINTS; n++) {
+   for(size_t n=0; n<npts; n++) {
       fscanf(uvw_f, "%d,%d,%d: %f, %f, %f\n", &junka, &junkb, &junkc, &fjunka, &fjunkb, &fjunkc);
       in[n].x = fjunka*IMG_SIZE/2048.;
       in[n].y = fjunkb*IMG_SIZE/2048.;
@@ -268,8 +330,93 @@ int main(void) {
    printf("%f -- %f, %f -- %f\n", min_x, max_x, min_y, max_y);
    fclose(uvw_f);
 #else
+#ifdef __HDF5_INPUT
+   //char* filename[]="vis.hdf5";
+#if 0
+   if (argc>1)
+   {
+      sprintf(filename, "%s", argv[1]);
+   } else {
+      sprintf(filename, "%s", "vis.hdf5");
+   }
+#endif
+
+   try {
+   /* Open an existing file. */
+   H5File file(H5std_string("vis.hdf5"), H5F_ACC_RDONLY);
+   DataSet dataset = file.openDataSet( H5std_string("vis"));
+   size_t size = dataset.getIntType().getSize();
+   printf("Data size is %d\n", (int)size);
+   hsize_t dims[4];
+   size_t ndim = dataset.getSpace().getSimpleExtentDims(dims, NULL);
+   printf("Dimensions: %d x %d x %d\n", (int)dims[0], (int)dims[1], (int)dims[2]);
+
+   size_t total_sz = dims[0]*dims[1]*dims[2];
+   
+   PRECISION2* foo = in;
+   PRECISION2* in = (PRECISION2*) malloc(sizeof(PRECISION2)*total_sz);
+   free(foo);
+   foo = in_vals;
+   PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*total_sz*POLARIZATIONS);
+   free(foo);
+   
+   short* raw_data = (short*)malloc(size*total_sz);
+   dataset.read( raw_data, dataset.getIntType());
+   float inminx = INT_MAX;
+   float inminy = INT_MAX;
+   float inmaxx = -INT_MAX;
+   float inmaxy = -INT_MAX;
+   for (int q=0;q<total_sz;q++)
+   {
+      hdf5_unit* h5d = (hdf5_unit*)(raw_data+11*q);
+      in[q].x = 1.0*h5d->u + 0.125*h5d->sub_u + 451;
+      in[q].y = 1.0*h5d->v + 0.125*h5d->sub_v + 1136;
+      for (int p=0;p<POLARIZATIONS;p++)
+      {
+         in_vals[POLARIZATIONS*q+p].x = h5d->r;
+         in_vals[POLARIZATIONS*q+p].y = h5d->i;
+      }
+      inminx = inminx < in[q].x ? inminx : in[q].x;
+      inminy = inminy < in[q].y ? inminy : in[q].y;
+      inmaxx = inmaxx > in[q].x ? inmaxx : in[q].x;
+      inmaxy = inmaxy > in[q].y ? inmaxy : in[q].y;
+      
+   }
+   printf("Image limits: (%f, %f) -- (%f, %f)\n", inminx, inminy, inmaxx, inmaxy);
+
+   npts = total_sz;
+   printf("   %d visibilities\n", npts);
+   //TODO convert raw_data to in
+   free(raw_data);
+   file.close();
+   }
+   
+   catch( FileIException error )
+   {
+      error.printError();
+      return -1;
+   }
+   // catch failure caused by the DataSet operations
+   catch( DataSetIException error )
+   {
+      error.printError();
+      return -1;
+   }
+   // catch failure caused by the DataSpace operations
+   catch( DataSpaceIException error )
+   {
+      error.printError();
+      return -1;
+   }
+   // catch failure caused by the DataSpace operations
+   catch( DataTypeIException error )
+   {
+      error.printError();
+   }
+
+#else
    srand(2541617);
-   for(size_t n=0; n<NPOINTS; n++) {
+   for(size_t n=0; n<npts; n++) {
       in[n].x = ((float)rand())/RAND_MAX*IMG_SIZE;
       in[n].y = ((float)rand())/RAND_MAX*IMG_SIZE;
       for (int p=0;p<POLARIZATIONS;p++) {
@@ -277,6 +424,7 @@ int main(void) {
          in_vals[POLARIZATIONS*n+p].y = ((float)rand())/RAND_MAX;
       }
    }
+#endif //HDF5_INPUT
 #endif
    //Zero the data in the offset areas
    //for (int x=-IMG_SIZE*GCF_DIM-GCF_DIM;x<0;x++) {
@@ -291,12 +439,12 @@ int main(void) {
 
 
 #ifdef __GATHER
-   std::qsort(in, NPOINTS, sizeof(PRECISION2), comp_grid<PRECISION2,PRECISION>);
+   std::qsort(in, npts, sizeof(PRECISION2), comp_grid<PRECISION2,PRECISION>);
 #else
 #ifdef __MOVING_WINDOW
-   std::qsort(in, NPOINTS, sizeof(PRECISION2), w_comp_main<PRECISION2,PRECISION>);
+   std::qsort(in, npts, sizeof(PRECISION2), w_comp_main<PRECISION2,PRECISION>);
 #else
-   std::qsort(in, NPOINTS, sizeof(PRECISION2), w_comp_sub<PRECISION2,PRECISION>);
+   std::qsort(in, npts, sizeof(PRECISION2), w_comp_sub<PRECISION2,PRECISION>);
 #endif
 #endif
    
@@ -304,14 +452,14 @@ int main(void) {
    //in[0] = in[204];
    //in[204]=tmp;
    std::cout << "Computing on GPU..." << std::endl;
-   gridGPU(out,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
+   gridGPU(out,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
    PRECISION2 *out_cpu=(PRECISION2*)malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    memset(out_cpu, 0, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    
-   gridCPU_pz(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
-   //gridCPU(out+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,NPOINTS,IMG_SIZE,gcf,GCF_DIM);
+   gridCPU_pz(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
+   //gridCPU(out+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
 #endif
 
 
