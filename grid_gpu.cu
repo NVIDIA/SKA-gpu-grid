@@ -55,7 +55,7 @@ __device__ void atomicAddWrap(float* address, float val)
 #ifdef __NOATOMIC
     *address+=val;
 #else
-   #ifdef __CASATOMIC
+   #if 1 || defined(__CASATOMIC) || __CUDA_ARCH__ < 800
   float old_v, new_v;
 
   do {
@@ -72,7 +72,7 @@ __device__ void atomicAddWrap(double* address, double val)
 #ifdef __NOATOMIC
     *address+=val;
 #else
-   #ifdef __CASATOMIC
+   #if defined(__CASATOMIC) || __CUDA_ARCH__ < 800
    //#if 1
     unsigned long long int* address_as_ull =
                              (unsigned long long int*)address;
