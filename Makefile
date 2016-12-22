@@ -23,6 +23,7 @@
 #  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 #  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+HDF5_HOME = /usr/local/hdf5
 ARCH ?= sm_35
 PRECISION ?= double
 ifeq ($(MANAGED),1)
@@ -52,6 +53,10 @@ endif
 ifeq ($(FAST_MATH),1)
 	CFLAGS += -use_fast_math
 endif
+ifeq ($(HDF5_INPUT),1)
+	CFLAGS += -D__HDF5_INPUT -I$(HDF5_HOME)/include -L$(HDF5_HOME)/lib -lhdf5_cpp -lhdf5
+        OBJS += hdf52struct.o
+endif
 CFLAGS += -Xcompiler -fopenmp -Xptxas -v,-abi=no
 CFLAGS += $(USERFLAGS)
 
@@ -62,20 +67,27 @@ clean:
 	rm GPUGrid.so
 	rm grid
 
-grid: grid.cu cucommon.cuh grid_gpu.cuh grid_gpu.o Defines.h
-	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} $(CFLAGS) -o grid grid.cu grid_gpu.o
+grid: grid.cu cucommon.cuh grid_gpu.cuh grid_gpu.o Defines.h $(OBJS)
+	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} $(CFLAGS) -o grid grid.cu grid_gpu.o $(OBJS)
 
 grid_gpu.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h
 	nvcc -c -arch=${ARCH} -std=c++11 $(CFLAGS) -o grid_gpu.o grid_gpu.cu
 
-grid_gpu_pic.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h
-	nvcc -Xcompiler -fPIC -c -arch=${ARCH} -std=c++11 $(CFLAGS) -o grid_gpu_pic.o grid_gpu.cu
+grid_gpu_pic.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h 
+	nvcc -Xcompiler -fPIC -c -arch=${ARCH} -std=c++11 $(CFLAGS) -o grid_gpu_pic.o grid_gpu.cu 
 
-grid-debug: grid.cu grid_gpu-debug.o cucommon.cuh Defines.h
-	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} -g -G -lineinfo $(CFLAGS) -o grid-debug grid_gpu-debug.o grid.cu
+grid-debug: grid.cu grid_gpu-debug.o cucommon.cuh Defines.h $(OBJS)
+	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} -g -G -lineinfo $(CFLAGS) -o grid-debug grid_gpu-debug.o grid.cu $(OBJS)
 
-grid_gpu-debug.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h
-	nvcc -c -arch=${ARCH} -std=c++11 -g -G -lineinfo $(CFLAGS) -o grid_gpu-debug.o grid_gpu.cu
+grid_gpu-debug.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h 
+	nvcc -c -arch=${ARCH} -std=c++11 -g -G -lineinfo $(CFLAGS) -o grid_gpu-debug.o grid_gpu.cu 
 
-GPUGrid.so: GPUGrid.cpp grid_gpu_pic.o
-	nvcc -std=c++11 -shared -Xcompiler -fPIC -I/usr/include/python2.7/ -lpython2.7 -o GPUGrid.so GPUGrid.cpp  grid_gpu_pic.o
+GPUGrid.so: GPUGrid.cpp grid_gpu_pic.o $(OBJS:.o=_pic.o)
+	nvcc -std=c++11 -shared -Xcompiler -fPIC -I/usr/include/python2.7/ -lpython2.7 -o GPUGrid.so GPUGrid.cpp  grid_gpu_pic.o $(OBJS:.o=_pic.o)
+
+hdf52struct.o: hdf52struct.cpp vis.h
+	nvcc -c -o hdf52struct.o hdf52struct.cpp $(CFLAGS)
+
+hdf52struct_pic.o: hdf52struct.cpp vis.h
+	nvcc -Xcompiler -fPIC -c -o hdf52struct_pic.o hdf52struct.cpp $(CFLAGS)
+

@@ -34,19 +34,13 @@ Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
 #include "Defines.h"
 #include "cuda.h"
 #ifdef __HDF5_INPUT
+#include <vector>
 #include "H5Cpp.h"
+#include "vis.h"
+
 using namespace H5;
-struct hdf5_unit
-{
-  short u;
-  short v;
-  short sub_u;
-  short sub_v;
-  float weight;
-  float r;
-  float i;
-  short w;
-};
+
+std::vector<struct vis> HDF5_to_struct(H5File* file);
 #endif
 
 //With managed memory, grid.cpp must be compiled as CUDA
@@ -365,58 +359,49 @@ int main(int argc, char** argv) {
    {
       sprintf(filename, "%s", argv[1]);
    } else {
-      sprintf(filename, "%s", "vis.hdf5");
+      sprintf(filename, "%s", "vis.h5");
    }
 #endif
 
-   try {
-   /* Open an existing file. */
-   H5File file(H5std_string("vis.hdf5"), H5F_ACC_RDONLY);
-   DataSet dataset = file.openDataSet( H5std_string("vis"));
-   size_t size = dataset.getIntType().getSize();
-   printf("Data size is %d\n", (int)size);
-   hsize_t dims[4];
-   size_t ndim = dataset.getSpace().getSimpleExtentDims(dims, NULL);
-   printf("Dimensions: %d x %d x %d\n", (int)dims[0], (int)dims[1], (int)dims[2]);
+   H5File* file;
+   if (argc>1) file = new H5File(H5std_string(argv[1]), H5F_ACC_RDONLY);
+   else file = new H5File(H5std_string("vis.h5"), H5F_ACC_RDONLY);
 
-   size_t total_sz = dims[0]*dims[1]*dims[2];
+   try { //For scoping visarray
+      std::vector<struct vis> visarray = HDF5_to_struct(file);
+      file->close();
+
+      size_t total_sz = visarray.size();
    
-   PRECISION2* foo = in;
-   PRECISION2* in = (PRECISION2*) malloc(sizeof(PRECISION2)*total_sz);
-   free(foo);
-   foo = in_vals;
-   PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*total_sz*POLARIZATIONS);
-   free(foo);
+      free(in);
+      in = (PRECISION2*) malloc(sizeof(PRECISION2)*total_sz);
+      free(in_vals);
+      in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*total_sz*POLARIZATIONS);
    
-   short* raw_data = (short*)malloc(size*total_sz);
-   dataset.read( raw_data, dataset.getIntType());
-   float inminx = INT_MAX;
-   float inminy = INT_MAX;
-   float inmaxx = -INT_MAX;
-   float inmaxy = -INT_MAX;
-   for (int q=0;q<total_sz;q++)
-   {
-      hdf5_unit* h5d = (hdf5_unit*)(raw_data+11*q);
-      in[q].x = 1.0*h5d->u + 0.125*h5d->sub_u + 451;
-      in[q].y = 1.0*h5d->v + 0.125*h5d->sub_v + 1136;
-      for (int p=0;p<POLARIZATIONS;p++)
+      float inminx = INT_MAX;
+      float inminy = INT_MAX;
+      float inmaxx = -INT_MAX;
+      float inmaxy = -INT_MAX;
+      for (int q=0;q<total_sz;q++)
       {
-         in_vals[POLARIZATIONS*q+p].x = h5d->r;
-         in_vals[POLARIZATIONS*q+p].y = h5d->i;
-      }
-      inminx = inminx < in[q].x ? inminx : in[q].x;
-      inminy = inminy < in[q].y ? inminy : in[q].y;
-      inmaxx = inmaxx > in[q].x ? inmaxx : in[q].x;
-      inmaxy = inmaxy > in[q].y ? inmaxy : in[q].y;
+         in[q].x = visarray[q].u;
+         in[q].y = visarray[q].v;
+         for (int p=0;p<POLARIZATIONS;p++)
+         {
+            in_vals[POLARIZATIONS*q+p].x = visarray[q].r;
+            in_vals[POLARIZATIONS*q+p].y = visarray[q].i;
+         }
+         inminx = inminx < in[q].x ? inminx : in[q].x;
+         inminy = inminy < in[q].y ? inminy : in[q].y;
+         inmaxx = inmaxx > in[q].x ? inmaxx : in[q].x;
+         inmaxy = inmaxy > in[q].y ? inmaxy : in[q].y;
       
-   }
-   printf("Image limits: (%f, %f) -- (%f, %f)\n", inminx, inminy, inmaxx, inmaxy);
+      }
+      printf("Image limits: (%f, %f) -- (%f, %f)\n", inminx, inminy, inmaxx, inmaxy);
 
-   npts = total_sz;
-   printf("   %d visibilities\n", npts);
-   //TODO convert raw_data to in
-   free(raw_data);
-   file.close();
+      npts = total_sz;
+      printf("   %d visibilities\n", npts);
+
    }
    
    catch( FileIException error )
