@@ -26,6 +26,7 @@
 HDF5_HOME = /usr/local/hdf5
 ARCH ?= sm_35
 PRECISION ?= double
+OUTPRECISION ?= double
 ifeq ($(MANAGED),1)
 	CFLAGS += -D__MANAGED 
 endif
@@ -68,7 +69,7 @@ clean:
 	rm grid
 
 grid: grid.cu cucommon.cuh grid_gpu.cuh grid_gpu.o Defines.h $(OBJS)
-	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} $(CFLAGS) -o grid grid.cu grid_gpu.o $(OBJS)
+	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} -DOUTPRECISION=${OUTPRECISION} $(CFLAGS) -o grid grid.cu grid_gpu.o $(OBJS)
 
 grid_gpu.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h
 	nvcc -c -arch=${ARCH} -std=c++11 $(CFLAGS) -o grid_gpu.o grid_gpu.cu
@@ -77,7 +78,7 @@ grid_gpu_pic.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h
 	nvcc -Xcompiler -fPIC -c -arch=${ARCH} -std=c++11 $(CFLAGS) -o grid_gpu_pic.o grid_gpu.cu 
 
 grid-debug: grid.cu grid_gpu-debug.o cucommon.cuh Defines.h $(OBJS)
-	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} -g -G -lineinfo $(CFLAGS) -o grid-debug grid_gpu-debug.o grid.cu $(OBJS)
+	nvcc -arch=${ARCH} -std=c++11 -DPRECISION=${PRECISION} -DOUTPRECISION=${OUTPRECISION} -g -G -lineinfo $(CFLAGS) -o grid-debug grid_gpu-debug.o grid.cu $(OBJS)
 
 grid_gpu-debug.o: grid_gpu.cu grid_gpu.cuh cucommon.cuh Defines.h 
 	nvcc -c -arch=${ARCH} -std=c++11 -g -G -lineinfo $(CFLAGS) -o grid_gpu-debug.o grid_gpu.cu 

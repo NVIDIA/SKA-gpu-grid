@@ -52,6 +52,9 @@ std::vector<struct vis> HDF5_to_struct(H5File* file);
 #if PRECISION==single
 #define PRECISION float
 #endif
+#if OUTPRECISION==single
+#define OUTPRECISION float
+#endif
 
 #ifndef PRECISION
 #define PRECISION double
@@ -59,6 +62,11 @@ std::vector<struct vis> HDF5_to_struct(H5File* file);
 #define PASTER(x) x ## 2
 #define EVALUATOR(x) PASTER(x)
 #define PRECISION2 EVALUATOR(PRECISION)
+
+#ifndef OUTPRECISION
+#define OUTPRECISION PRECISION
+#endif
+#define OUTPRECISION2 EVALUATOR(OUTPRECISION)
 
 
 void init_gcf(PRECISION2 *gcf, size_t size) {
@@ -90,6 +98,8 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
    for (size_t n=0;n<IMG_SIZE*IMG_SIZE; n++) out[n].x = out[n].y = 0.0;
    //offset gcf to point to the middle for cleaner code later
    gcf += GCF_DIM*(GCF_DIM-1)/2-1;
+   double* out1 = (double*)out;
+   double* out2 = (double*)(out+POLARIZATIONS*img_dim*img_dim/2);
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
    for(size_t n=0; n<npts; n++) {
@@ -115,11 +125,11 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
              main_x+a >= IMG_SIZE  || main_y+b >= IMG_SIZE) {
          } else {
 #ifdef DEBUG1
-               out[main_x+a+IMG_SIZE*(main_y+b)].x += 1;
-               out[main_x+a+IMG_SIZE*(main_y+b)].y += n;
+               out1[main_x+a+IMG_SIZE*(main_y+b)] += 1;
+               out2[main_x+a+IMG_SIZE*(main_y+b)] += n;
 #else
-               out[main_x+a+IMG_SIZE*(main_y+b)].x += r1*r2-i1*i2; 
-               out[main_x+a+IMG_SIZE*(main_y+b)].y += r1*i2+r2*i1;
+               out1[main_x+a+IMG_SIZE*(main_y+b)] += r1*r2-i1*i2; 
+               out2[main_x+a+IMG_SIZE*(main_y+b)] += r1*i2+r2*i1;
 #endif
          }
       }
@@ -140,6 +150,8 @@ void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npt
    //Zero the output
    //offset gcf to point to the middle for cleaner code later
    gcf += GCF_DIM*(GCF_DIM-1)/2-1;
+   double* out1 = (double*)out;
+   double* out2 = (double*)(out+POLARIZATIONS*img_dim*img_dim/2);
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
    for(size_t n=0; n<npts; n++) {
@@ -166,11 +178,11 @@ void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npt
                r1 = in_vals[POLARIZATIONS*n+p].x;
                i1 = in_vals[POLARIZATIONS*n+p].y;
 #ifdef DEBUG1
-               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].x += 1;
-               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].y += n;
+               out1[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE] += 1;
+               out2[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE] += n;
 #else
-               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].x += r1*r2-i1*i2; 
-               out[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE].y += r1*i2+r2*i1;
+               out1[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE] += r1*r2-i1*i2; 
+               out2[main_x+a+IMG_SIZE*(main_y+b)+p*IMG_SIZE*IMG_SIZE] += r1*i2+r2*i1;
 #endif
             }
          }
@@ -268,13 +280,14 @@ int comp_grid (const void* A, const void* B) {
 int main(int argc, char** argv) {
 
 #ifdef __MANAGED
-   PRECISION2* out, *in, *in_vals, *gcf;
-   cudaMallocManaged(&out, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
+   OUTPRECISION2 *out;
+   PRECISION2 *in, *in_vals, *gcf;
+   cudaMallocManaged(&out, sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    cudaMallocManaged(&in, sizeof(PRECISION2)*NPOINTS);
    cudaMallocManaged(&in_vals, sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
    cudaMallocManaged(&gcf, sizeof(PRECISION2)*64*GCF_DIM*GCF_DIM);
 #else
-   PRECISION2* out = (PRECISION2*) malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
+   OUTPRECISION2* out = (OUTPRECISION2*) malloc(sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    PRECISION2* in = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS);
    PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
 
@@ -428,7 +441,7 @@ int main(int argc, char** argv) {
    }
 
 #else
-   srand(2541617);
+   srand(1541617);
    for(size_t n=0; n<npts; n++) {
       in[n].x = ((float)rand())/RAND_MAX*IMG_SIZE;
       in[n].y = ((float)rand())/RAND_MAX*IMG_SIZE;

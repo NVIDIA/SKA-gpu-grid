@@ -501,10 +501,10 @@ grid_kernel_gather(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       }
    }
 }
-template <int gcf_dim, class CmplxType>
+template <int gcf_dim, class CmplxOutType, class CmplxType>
 __global__ void 
 __launch_bounds__(GCF_DIM*BLOCK_Y, 4)
-grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts, 
+grid_kernel_window(CmplxOutType* out, int2* in, CmplxType* in_vals, size_t npts, 
                               int img_dim, CmplxType* gcf) {
    
 #ifdef __COMPUTE_GCF
@@ -515,21 +515,21 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
 #endif
    int2 __shared__ inbuff[32];
    CmplxType __shared__ invalbuff[POLARIZATIONS][32+32/POLARIZATIONS];
-   CmplxType sum[POLARIZATIONS];
+   CmplxOutType sum[POLARIZATIONS];
    CmplxType r1;
    int half_gcf = gcf_dim/2;
    int local_npt = (npts+gridDim.x-1)/gridDim.x; //number of points assigned to this block
-   //TODO find a was to switch this on CmplxType
+   //TODO find a way to switch this on CmplxOutType
    //TODO What about odd values of img_dim?
    double* out1 = (double*)out;
    double* out2 = (double*)(out+POLARIZATIONS*img_dim*img_dim/2);
    in += local_npt*blockIdx.x;
    in_vals += local_npt*blockIdx.x*POLARIZATIONS;
    //TODO What about odd values of npts?
-   double* in_vals1 = (double*)in_vals;
-   double* in_vals2 = (double*)(in_vals+npts/2);
-   double* gcf1 = (double*)gcf;
-   double* gcf2 = (double*)(gcf+gcf_dim*gcf_dim*GCF_GRID*GCF_GRID/2);
+   //double* in_vals1 = (double*)in_vals;
+   //double* in_vals2 = (double*)(in_vals+npts/2);
+   //double* gcf1 = (double*)gcf;
+   //double* gcf2 = (double*)(gcf+gcf_dim*gcf_dim*GCF_GRID*GCF_GRID/2);
    int last_idx = -INT_MAX;
    size_t gcf_y = threadIdx.y + blockIdx.y*blockDim.y;
    if (blockIdx.x==gridDim.x-1) local_npt = npts-local_npt*blockIdx.x;
@@ -560,6 +560,7 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
       //shm[threadIdx.x][threadIdx.y].x = 0.00;
       //shm[threadIdx.x][threadIdx.y].y = 0.00;
       __syncthreads(); 
+      if (gcf_y >= GCF_DIM) continue;
    for (int q = 0; q<32 && n+q < local_npt; q++) {
       int2 inn = inbuff[q];
       int main_y = inn.y/GCF_GRID;
@@ -671,8 +672,8 @@ grid_kernel_window(CmplxType* out, int2* in, CmplxType* in_vals, size_t npts,
    }
 }
 
-template <class CmplxType>
-void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, size_t img_dim, 
+template <class CmplxOutType, class CmplxType>
+void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, size_t npts, size_t img_dim, 
                CmplxType *gcf, size_t gcf_dim) {
 //grid on the GPU
 //  out (out) - the output image
@@ -683,7 +684,8 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
 //  gcf (in) - the gridding convolution function
 //  gcf_dim (in) - dimension of the GCF
 
-   CmplxType *d_out, *d_in, *d_in_vals, *d_gcf;
+   CmplxOutType *d_out;
+   CmplxType *d_in, *d_in_vals, *d_gcf;
 
    cudaEvent_t start, stop;
    cudaEventCreate(&start); cudaEventCreate(&stop);
@@ -700,13 +702,13 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    //img is padded to avoid overruns. Subtract to find the real head
 
    //Pin CPU memory
-   cudaHostRegister(out, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS, cudaHostRegisterMapped);
+   cudaHostRegister(out, sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS, cudaHostRegisterMapped);
    cudaHostRegister(gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim, cudaHostRegisterMapped);
    cudaHostRegister(in, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
    cudaHostRegister(in_vals, sizeof(CmplxType)*npts*POLARIZATIONS, cudaHostRegisterMapped);
 
    //Allocate GPU memory
-   cudaMalloc(&d_out, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
+   cudaMalloc(&d_out, sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
    cudaMalloc(&d_gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim);
    cudaMalloc(&d_in, sizeof(CmplxType)*npts);
    cudaMalloc(&d_in_vals, sizeof(CmplxType)*npts*POLARIZATIONS);
@@ -727,7 +729,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
 #endif
    //offset gcf to point to the middle of the first GCF for cleaner code later
    d_gcf += gcf_dim*(gcf_dim-1)/2-1;
-   CmplxType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim;
+   CmplxOutType* d_out_unpad = d_out + img_dim*gcf_dim+gcf_dim;
 
 #ifdef __GATHER
    int2* in_ints;
@@ -750,7 +752,7 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    CUDA_CHECK_ERR(__LINE__,__FILE__);
    
    
-   cudaMemset(d_out, 0, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
+   cudaMemset(d_out, 0, sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
    cudaEventRecord(start);
    for (int stripe=0;stripe<GCF_STRIPES;stripe++)
       grid_kernel_gather<GCF_DIM>
@@ -767,10 +769,10 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaMalloc(&in_ints, sizeof(int2)*npts);
    vis2ints<<<4,256>>>(d_in, in_ints, npts);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
-   cudaMemset(d_out, 0, sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
+   cudaMemset(d_out, 0, sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
    cudaEventRecord(start);
    grid_kernel_window<GCF_DIM>
-               <<<dim3((npts+31)/32,GCF_DIM/BLOCK_Y),dim3(GCF_DIM,BLOCK_Y)>>>(d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf); 
+               <<<dim3((npts+31)/32,(GCF_DIM+BLOCK_Y-1)/BLOCK_Y),dim3(GCF_DIM,BLOCK_Y)>>>(d_out_unpad,in_ints,d_in_vals,npts,img_dim,d_gcf); 
    //vis2ints<<<dim3(npts/64,8),dim3(GCF_DIM,GCF_DIM/8)>>>(d_in, in_ints, npts);
 #else
    cudaEventRecord(start);
@@ -815,7 +817,9 @@ void gridGPU(CmplxType* out, CmplxType* in, CmplxType* in_vals, size_t npts, siz
    cudaEventDestroy(start); cudaEventDestroy(stop);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
 }
-template void gridGPU<double2>(double2* out, double2* in, double2* in_vals, size_t npts,
+template void gridGPU<double2, double2>(double2* out, double2* in, double2* in_vals, size_t npts,
                                  size_t img_dim, double2 *gcf, size_t gcf_dim); 
-template void gridGPU<float2>(float2* out, float2* in, float2* in_vals, size_t npts,
+template void gridGPU<double2, float2>(double2* out, float2* in, float2* in_vals, size_t npts,
+                                size_t img_dim, float2 *gcf, size_t gcf_dim); 
+template void gridGPU<float2, float2>(float2* out, float2* in, float2* in_vals, size_t npts,
                                 size_t img_dim, float2 *gcf, size_t gcf_dim); 
