@@ -796,7 +796,7 @@ void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, size_t npts, 
 #else
    CUDA_CHECK_ERR(__LINE__,__FILE__);
    cudaMemcpy(out, d_out, 
-              sizeof(CmplxType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS, 
+              sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS, 
               cudaMemcpyDeviceToHost);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
 

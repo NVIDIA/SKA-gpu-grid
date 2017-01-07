@@ -137,7 +137,7 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
    } 
    gcf -= GCF_DIM*(GCF_DIM-1)/2-1;
 }
-void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, size_t img_dim, PRECISION2 *gcf, size_t gcf_dim) {
+void gridCPU_pz(OUTPRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, size_t img_dim, PRECISION2 *gcf, size_t gcf_dim) {
 //degrid on the CPU
 //  out (out) - the output image
 //  in  (in)  - the input locations
@@ -151,7 +151,7 @@ void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npt
    //offset gcf to point to the middle for cleaner code later
    gcf += GCF_DIM*(GCF_DIM-1)/2-1;
    double* out1 = (double*)out;
-   double* out2 = (double*)(out+POLARIZATIONS*img_dim*img_dim/2);
+   double* out2 = ((double*)out)+POLARIZATIONS*img_dim*img_dim;
 //#pragma acc parallel loop copyout(out[0:NPOINTS]) copyin(in[0:NPOINTS],gcf[0:GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM],img[IMG_SIZE*IMG_SIZE]) gang
 //#pragma omp parallel for
    for(size_t n=0; n<npts; n++) {
@@ -481,8 +481,8 @@ int main(int argc, char** argv) {
    gridGPU(out,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
-   PRECISION2 *out_cpu=(PRECISION2*)malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
-   memset(out_cpu, 0, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
+   OUTPRECISION2 *out_cpu=(OUTPRECISION2*)malloc(sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
+   memset(out_cpu, 0, sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    
    gridCPU_pz(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
    //gridCPU(out+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
@@ -491,12 +491,13 @@ int main(int argc, char** argv) {
 
 #ifdef __CPU_CHECK
    std::cout << "Checking results against CPU:" << std::endl;
+   std::cout.precision(11);
    for (size_t yy = 0; yy < IMG_SIZE; yy++) {
    for (size_t xx = 0; xx < IMG_SIZE; xx++) {
      int n = GCF_DIM+IMG_SIZE*GCF_DIM+yy*IMG_SIZE+xx;
      for (int p = 0; p < IMG_SIZE*IMG_SIZE*POLARIZATIONS; p+=IMG_SIZE*IMG_SIZE) {
-        if (fabs(out[n+p].x-out_cpu[n+p].x) > 0.0000001 ||
-            fabs(out[n+p].y-out_cpu[n+p].y) > 0.0000001 )
+        if (fabs(out[n+p].x-out_cpu[n+p].x) > 0.000001 ||
+            fabs(out[n+p].y-out_cpu[n+p].y) > 0.000001 )
            std::cout << xx << ", " << yy << "[" << p/IMG_SIZE/IMG_SIZE << "] : " 
                      << "(" << n+p-(GCF_DIM+IMG_SIZE*GCF_DIM) << ") "
                      << out[n+p].x << ", " << out[n+p].y 
