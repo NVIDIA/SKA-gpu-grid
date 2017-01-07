@@ -137,7 +137,8 @@ void gridCPU(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, 
    } 
    gcf -= GCF_DIM*(GCF_DIM-1)/2-1;
 }
-void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npts, size_t img_dim, PRECISION2 *gcf, size_t gcf_dim) {
+void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, int* in_gcfinx, 
+                size_t npts, size_t img_dim, PRECISION2 *gcf, size_t gcf_dim) {
 //degrid on the CPU
 //  out (out) - the output image
 //  in  (in)  - the input locations
@@ -166,9 +167,9 @@ void gridCPU_pz(PRECISION2* out, PRECISION2 *in, PRECISION2 *in_vals, size_t npt
 //#pragma omp parallel for collapse(2) reduction(+:sum_r, sum_i)
       for (int a=GCF_DIM/2; a>-GCF_DIM/2 ;a--)
       for (int b=GCF_DIM/2; b>-GCF_DIM/2 ;b--) {
-         PRECISION r2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
+         PRECISION r2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x+GCF_GRID*GCF_GRID*in_gcfinx[n]) + 
                         GCF_DIM*b+a].x;
-         PRECISION i2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x) + 
+         PRECISION i2 = gcf[GCF_DIM*GCF_DIM*(GCF_GRID*sub_y+sub_x+GCF_GRID*GCF_GRID*in_gcfinx[n]) + 
                         GCF_DIM*b+a].y;
          PRECISION r1, i1;
          if (main_x+a < 0 || main_y+b < 0 || 
@@ -285,13 +286,15 @@ int main(int argc, char** argv) {
    cudaMallocManaged(&out, sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    cudaMallocManaged(&in, sizeof(PRECISION2)*NPOINTS);
    cudaMallocManaged(&in_vals, sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
-   cudaMallocManaged(&gcf, sizeof(PRECISION2)*64*GCF_DIM*GCF_DIM);
+   cudaMallocManaged(&in_gcfinx, sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
+   cudaMallocManaged(&gcf, sizeof(PRECISION2)*GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM*NGCF);
 #else
    OUTPRECISION2* out = (OUTPRECISION2*) malloc(sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    PRECISION2* in = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS);
    PRECISION2* in_vals = (PRECISION2*) malloc(sizeof(PRECISION2)*NPOINTS*POLARIZATIONS);
+   int* in_gcfinx = (int*) malloc(sizeof(int)*NPOINTS*POLARIZATIONS);
 
-   PRECISION2 *gcf = (PRECISION2*) malloc(64*GCF_DIM*GCF_DIM*sizeof(PRECISION2));
+   PRECISION2 *gcf = (PRECISION2*) malloc(GCF_GRID*GCF_GRID*GCF_DIM*GCF_DIM*NGCF*sizeof(PRECISION2));
 #endif
    int npts=NPOINTS;
 
@@ -334,7 +337,10 @@ int main(int argc, char** argv) {
    printf("\n\n\n");
 
 
-   init_gcf(gcf, GCF_DIM);
+   for (int q=0; q<NGCF;q++)
+   {
+      init_gcf(gcf + q*GCF_DIM*GCF_DIM*GCF_GRID*GCF_GRID, GCF_DIM);
+   }
 #ifdef __FILE_INPUT
    char filename[400];
    if (argc>1)
@@ -360,6 +366,7 @@ int main(int argc, char** argv) {
       for (int p=0;p<POLARIZATIONS;p++) {
          in_vals[POLARIZATIONS*n+p].x = ((float)rand())/RAND_MAX;
          in_vals[POLARIZATIONS*n+p].y = ((float)rand())/RAND_MAX;
+         in_gcfinx[POLARIZATIONS*n+p] = rand()%NCGF;
       }
    }
    printf("%f -- %f, %f -- %f\n", min_x, max_x, min_y, max_y);
@@ -448,6 +455,7 @@ int main(int argc, char** argv) {
       for (int p=0;p<POLARIZATIONS;p++) {
          in_vals[POLARIZATIONS*n+p].x = ((float)rand())/RAND_MAX;
          in_vals[POLARIZATIONS*n+p].y = ((float)rand())/RAND_MAX;
+         in_gcfinx[POLARIZATIONS*n+p] = rand()%NGCF;
       }
    }
 #endif //HDF5_INPUT
@@ -478,14 +486,14 @@ int main(int argc, char** argv) {
    //in[0] = in[204];
    //in[204]=tmp;
    std::cout << "Computing on GPU..." << std::endl;
-   gridGPU(out,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
+   gridGPU(out,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
    PRECISION2 *out_cpu=(PRECISION2*)malloc(sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    memset(out_cpu, 0, sizeof(PRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
    
-   gridCPU_pz(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
-   //gridCPU(out+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,npts,IMG_SIZE,gcf,GCF_DIM);
+   gridCPU_pz(out_cpu+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
+   //gridCPU(out+IMG_SIZE*GCF_DIM+GCF_DIM,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
 #endif
 
 

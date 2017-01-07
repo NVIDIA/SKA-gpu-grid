@@ -58,6 +58,7 @@ Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
 #define GCF_DIM 32
 #define IMG_SIZE 2048
 #define GCF_GRID 8
+#define NGCF 5
 //BLOCK_Y affects only MOVING_WINDOW
 #ifndef BLOCK_Y
 //#define BLOCK_Y 4 

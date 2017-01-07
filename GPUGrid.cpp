@@ -49,6 +49,37 @@ static PyObject* py_simpleAdd(PyObject* self, PyObject* args)
   PyArg_ParseTuple(args, "dd", &x, &y);
   return Py_BuildValue("d", x*y);
 }
+int extractIntList(PyObject *list_in, int** p_array_out, int argnum) {
+
+  //Checking input type
+  if (!PyList_Check(list_in)) {
+     char errmsg[37];
+     sprintf(errmsg,"Argument %d must be a list of int\n", argnum);
+     printf("Argument %d must be a list of int\n", argnum);
+     fprintf(stderr, "%s", errmsg);fflush(0);
+     PyErr_SetString(PyExc_TypeError, errmsg); 
+     return -1;
+  }
+  if (!PyFloat_Check(PyList_GetItem(list_in,0))) {
+     char errmsg[37];
+     sprintf(errmsg,"Argument %d must be a list of int\n", argnum);
+     printf("Argument %d must be a list of int\n", argnum);
+     fprintf(stderr, "%s", errmsg);fflush(0);
+     PyErr_SetString(PyExc_TypeError, errmsg); 
+     return -1;
+  }
+  int list_size = PyList_Size(list_in);
+  PyObject* iter = PyObject_GetIter(list_in);
+  *p_array_out = (int*)malloc(sizeof(int)*list_size);
+  int* array_out = *p_array_out; 
+  int q;
+  PyObject* item;
+  for (q=0;q<PyList_Size(list_in);q++) {
+     item = PyIter_Next(iter);
+     array_out[q] = (int)PyInt_AsLong(item);
+  }
+  return 0;
+}
 int extractFloatList(PyObject *list_in, double** p_array_out, int argnum) {
 
   //Checking input type
@@ -124,14 +155,15 @@ void makeComplexList(double2* array_in, int list_size, PyObject *list_out) {
 static PyObject* GPUGrid_convgrid(PyObject* self, PyObject* args)
 {
   int npts, img_size, Qpx, gcf_dim, q;
-  PyObject *in, *in_vals, *gcf, *out;
-  if(!PyArg_ParseTuple(args, "OiOiOii", &in, &npts, &in_vals, &img_size, 
+  PyObject *in, *in_vals, *in_gcfinx, *gcf, *out;
+  if(!PyArg_ParseTuple(args, "OiOOiOii", &in, &npts, &in_vals, &in_gcfinx, &img_size, 
                                     &gcf, &Qpx, &gcf_dim)) {
     PyErr_SetString(PyExc_TypeError, "Incorrect number or type of arguments to convgrid.\n\n"
-        "Usage: convgrid(in, npts, in_vals, img_size, gcf, Qpx, gcf_dim)\n"
+        "Usage: convgrid(in, npts, in_vals, in_gcfinx, img_size, gcf, Qpx, gcf_dim)\n"
         "    in: list of float\n"
         "    npts: integer\n"
         "    in_vals: list of complex\n"
+        "    in_gcfinx: list of complex\n"
         "    img_size: integer\n"
         "    gcf: list of complex\n"
         "    Qpx: integer\n"
@@ -142,12 +174,14 @@ static PyObject* GPUGrid_convgrid(PyObject* self, PyObject* args)
 
   double2 *gcf_c, *in_vals_c, *out_c;
   double *in_c;
+  int* in_gcfinx_c;
+  if (0 != extractIntList(in_gcfinx, &in_gcfinx_c, 4)) return Py_BuildValue("");
   if (0 != extractComplexList(in_vals, &in_vals_c, 3)) return Py_BuildValue("");
   if (0 != extractFloatList(in, &in_c, 1)) return Py_BuildValue("");
-  if (0 != extractComplexList(gcf, &gcf_c, 5)) return Py_BuildValue("");
+  if (0 != extractComplexList(gcf, &gcf_c, 6)) return Py_BuildValue("");
   out_c = (double2*)malloc(sizeof(double2)*npts);
 #if 1
-  gridGPU(out_c, (double2*)in_c, (double2*)in_vals_c, npts, img_size, gcf_c, gcf_dim); 
+  gridGPU(out_c, (double2*)in_c, (double2*)in_vals_c, in_gcfinx_c, npts, img_size, gcf_c, gcf_dim); 
   printf("Done with gridGPU\n"); fflush(0);
 #else
   for (q=0;q<npts;q++) {
