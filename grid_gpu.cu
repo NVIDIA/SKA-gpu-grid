@@ -543,7 +543,7 @@ grid_kernel_window(CmplxOutType* out, int2* in, CmplxType* in_vals, int* in_gcfi
       if (raw_idx < 32) inbuff[raw_idx]= in[n+raw_idx];
       else {
 	 //TODO What if gridDim < 32+64*POLARIZATIONS
-         if (raw_idx - 32 < 32*POLARIZATIONS) 
+         if (raw_idx < 32 + 32*POLARIZATIONS) 
 	 {
             raw_idx -= 32;
 	    #if 0
@@ -555,9 +555,9 @@ grid_kernel_window(CmplxOutType* out, int2* in, CmplxType* in_vals, int* in_gcfi
 	    invalbuff[raw_idx%POLARIZATIONS][raw_idx/POLARIZATIONS].y= in_vals[n*POLARIZATIONS+raw_idx].y;
 	    //invalbuff[raw_idx%POLARIZATIONS][raw_idx/POLARIZATIONS]= in_vals[n*POLARIZATIONS+raw_idx];
 	    #endif
-	 } else if (raw_idx < 2*32*POLARIZATIONS)
+	 } else if (raw_idx < 32 + 2*32*POLARIZATIONS)
          {
-            raw_idx -= 32*POLARIZATIONS;
+            raw_idx -= 32 + 32*POLARIZATIONS;
 	    ingcfinxbuff[raw_idx%POLARIZATIONS][raw_idx/POLARIZATIONS] = in_gcfinx[n*POLARIZATIONS+raw_idx];
          }
       }
