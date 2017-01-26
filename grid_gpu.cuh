@@ -29,6 +29,6 @@ Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
 #define __GRID_CUH
 template <class CmplxOutType, class CmplxType>
 void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfinx, size_t npts, size_t img_dim, 
-               CmplxType *gcf, size_t gcf_dim); 
+               CmplxType *gcf, int gcf_dim); 
 #endif
 

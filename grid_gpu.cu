@@ -680,7 +680,7 @@ grid_kernel_window(CmplxOutType* out, int2* in, CmplxType* in_vals, int* in_gcfi
 
 template <class CmplxOutType, class CmplxType>
 void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfinx, size_t npts, size_t img_dim, 
-               CmplxType *gcf, size_t gcf_dim) {
+               CmplxType *gcf, int gcf_dim) {
 //grid on the GPU
 //  out (out) - the output image
 //  in  (in)  - the input locations
@@ -712,7 +712,7 @@ void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfin
 
    //Pin CPU memory
    cudaHostRegister(out, sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS, cudaHostRegisterMapped);
-   cudaHostRegister(gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim, cudaHostRegisterMapped);
+   cudaHostRegister(gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim*NGCF, cudaHostRegisterMapped);
    cudaHostRegister(in, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
    cudaHostRegister(in_vals, sizeof(CmplxType)*npts*POLARIZATIONS, cudaHostRegisterMapped);
 
@@ -723,10 +723,13 @@ void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfin
    cudaMalloc(&d_in_vals, sizeof(CmplxType)*npts*POLARIZATIONS);
    cudaMalloc(&d_in_gcfinx, sizeof(int)*npts*POLARIZATIONS);
    CUDA_CHECK_ERR(__LINE__,__FILE__);
+   if (!d_out || !d_gcf || !d_in || !d_in_vals || !d_in_gcfinx) 
+                  std::cerr << "Error: Could not allocate GPU memory." << std::endl;
 
    //Copy in img, gcf and out
    cudaEventRecord(start);
-   cudaMemcpy(d_gcf, gcf, sizeof(CmplxType)*64*gcf_dim*gcf_dim, 
+   std::cout << "gcf size: " << sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim*NGCF << std::endl;
+   cudaMemcpy(d_gcf, gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim*NGCF, 
               cudaMemcpyHostToDevice);
    cudaMemcpy(d_in, in, sizeof(CmplxType)*npts,
               cudaMemcpyHostToDevice);
@@ -832,8 +835,8 @@ void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfin
    CUDA_CHECK_ERR(__LINE__,__FILE__);
 }
 template void gridGPU<double2, double2>(double2* out, double2* in, double2* in_vals, int* in_gcfinx, 
-                                 size_t npts, size_t img_dim, double2 *gcf, size_t gcf_dim); 
+                                 size_t npts, size_t img_dim, double2 *gcf, int gcf_dim); 
 template void gridGPU<double2, float2>(double2* out, float2* in, float2* in_vals, int* in_gcfinx, 
-                                size_t npts, size_t img_dim, float2 *gcf, size_t gcf_dim); 
+                                size_t npts, size_t img_dim, float2 *gcf, int gcf_dim); 
 template void gridGPU<float2, float2>(float2* out, float2* in, float2* in_vals, int* in_gcfinx, 
-                                size_t npts, size_t img_dim, float2 *gcf, size_t gcf_dim); 
+                                size_t npts, size_t img_dim, float2 *gcf, int gcf_dim); 

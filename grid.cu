@@ -486,7 +486,8 @@ int main(int argc, char** argv) {
    //in[0] = in[204];
    //in[204]=tmp;
    std::cout << "Computing on GPU..." << std::endl;
-   gridGPU(out,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
+  
+   for(int q=0;q<100;q++) gridGPU(out,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
    OUTPRECISION2 *out_cpu=(OUTPRECISION2*)malloc(sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);
