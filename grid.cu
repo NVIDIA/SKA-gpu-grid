@@ -315,11 +315,11 @@ int main(int argc, char** argv) {
       printf("   No atomics\n");
    #endif
 #endif
-#if PRECISION==double
-   printf("   Double precision\n");
-#else
-   printf("   Single precision\n");
-#endif
+   if (sizeof(PRECISION)==8) {
+     printf("   Double precision\n");
+   } else {  
+     printf("   Single precision\n");
+   }
    printf("   Image size %dx%d\n", IMG_SIZE, IMG_SIZE);
    printf("   GCF size %dx%d\n", GCF_DIM, GCF_DIM);
    printf("   %d polarizations\n", POLARIZATIONS);
@@ -487,7 +487,7 @@ int main(int argc, char** argv) {
    //in[204]=tmp;
    std::cout << "Computing on GPU..." << std::endl;
   
-   for(int q=0;q<100;q++) gridGPU(out,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
+   gridGPU(out,in,in_vals,in_gcfinx,npts,IMG_SIZE,gcf,GCF_DIM);
 #ifdef __CPU_CHECK
    std::cout << "Computing on CPU..." << std::endl;
    OUTPRECISION2 *out_cpu=(OUTPRECISION2*)malloc(sizeof(OUTPRECISION2)*(IMG_SIZE*IMG_SIZE+2*IMG_SIZE*GCF_DIM+2*GCF_DIM)*POLARIZATIONS);

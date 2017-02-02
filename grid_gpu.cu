@@ -28,6 +28,7 @@ Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
 #include "Defines.h"
 #include "cucommon.cuh"
 #include <iostream>
+#define OUTPRECISION double
 
 void CUDA_CHECK_ERR(unsigned lineNumber, const char* fileName) {
 
@@ -55,7 +56,7 @@ __device__ void atomicAddWrap(float* address, float val)
 #ifdef __NOATOMIC
     *address+=val;
 #else
-   #if 1 || defined(__CASATOMIC) || __CUDA_ARCH__ < 800
+   #if defined(__CASATOMIC) 
   float old_v, new_v;
 
   do {
@@ -73,7 +74,6 @@ __device__ void atomicAddWrap(double* address, double val)
     *address+=val;
 #else
    #if defined(__CASATOMIC) || __CUDA_ARCH__ < 800
-   //#if 1
     unsigned long long int* address_as_ull =
                              (unsigned long long int*)address;
     unsigned long long int old = *address_as_ull, assumed;
@@ -522,8 +522,8 @@ grid_kernel_window(CmplxOutType* out, int2* in, CmplxType* in_vals, int* in_gcfi
    int local_npt = (npts+gridDim.x-1)/gridDim.x; //number of points assigned to this block
    //TODO find a way to switch this on CmplxOutType
    //TODO What about odd values of img_dim?
-   double* out1 = (double*)out;
-   double* out2 = (double*)(out+POLARIZATIONS*img_dim*img_dim/2);
+   OUTPRECISION* out1 = (OUTPRECISION*)out;
+   OUTPRECISION* out2 = (OUTPRECISION*)(out+POLARIZATIONS*img_dim*img_dim/2);
    in += local_npt*blockIdx.x;
    in_vals += local_npt*blockIdx.x*POLARIZATIONS;
    //TODO What about odd values of npts?
@@ -715,6 +715,7 @@ void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfin
    cudaHostRegister(gcf, sizeof(CmplxType)*GCF_GRID*GCF_GRID*gcf_dim*gcf_dim*NGCF, cudaHostRegisterMapped);
    cudaHostRegister(in, sizeof(CmplxType)*npts, cudaHostRegisterMapped);
    cudaHostRegister(in_vals, sizeof(CmplxType)*npts*POLARIZATIONS, cudaHostRegisterMapped);
+   cudaHostRegister(in_gcfinx, sizeof(int)*npts*POLARIZATIONS, cudaHostRegisterMapped);
 
    //Allocate GPU memory
    cudaMalloc(&d_out, sizeof(CmplxOutType)*(img_dim*img_dim+2*img_dim*gcf_dim+2*gcf_dim)*POLARIZATIONS);
@@ -822,10 +823,16 @@ void gridGPU(CmplxOutType* out, CmplxType* in, CmplxType* in_vals, int* in_gcfin
    cudaHostUnregister(out);
    cudaHostUnregister(in);
    cudaHostUnregister(in_vals);
+   cudaHostUnregister(in_gcfinx);
 
    //Restore d_img and d_gcf for deallocation
    d_gcf -= gcf_dim*(gcf_dim-1)/2-1;
    cudaFree(d_out);
+   cudaFree(d_gcf);
+   cudaFree(d_in);
+   cudaFree(d_in_vals);
+   cudaFree(d_in_gcfinx);
+   CUDA_CHECK_ERR(__LINE__,__FILE__);
 #ifdef __GATHER
    cudaFree(in_ints);
    cudaFree(bookmarks);
